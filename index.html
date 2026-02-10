@@ -321,8 +321,10 @@ const TAX_DATA = {
    Sources: Tax Foundation, state tax authority websites.
    For progressive states this is the top marginal rate — a simplification
    that works well for retirees with moderate-to-high income.
-   Users can override after selection. */
-const STATE_TAX_RATES = [
+   Users can override after selection.
+   These are fallback values — the app fetches data/rates.json at runtime
+   for the latest rates. Edit that file to update. */
+let STATE_TAX_RATES = [
   { abbr: "--", name: "-- Select State --", rate: 0 },
   { abbr: "AL", name: "Alabama", rate: 5.0 },
   { abbr: "AK", name: "Alaska", rate: 0.0 },
@@ -376,8 +378,8 @@ const STATE_TAX_RATES = [
   { abbr: "WI", name: "Wisconsin", rate: 7.65 },
   { abbr: "WY", name: "Wyoming", rate: 0.0 }
 ];
-const RATES_LAST_UPDATED = "2025-02-10";
-const RATES_TAX_YEAR = 2025;
+let RATES_LAST_UPDATED = "2025-02-10";
+let RATES_TAX_YEAR = 2025;
 
 /* ============================================================
    MODULE 2: RMD CALCULATOR
@@ -1283,7 +1285,7 @@ function KeyAssumptions() {
       React.createElement('strong', null, 'Tax data may be outdated. '),
       `State tax rates were last updated ${RATES_LAST_UPDATED} for tax year ${RATES_TAX_YEAR}. `,
       'Federal brackets, IRMAA thresholds, and state rates should be reviewed annually. ',
-      'Run scripts/update-state-tax-rates.js to refresh state rates, or ask Claude Code to update all tax data.'
+      'Ask Claude Code to update the rates, or edit data/rates.json and push.'
     ),
     React.createElement('ul', { className: 'assumptions-list' },
       React.createElement('li', null, 'Tax brackets: 2025 federal brackets (IRS Rev. Proc. 2024-40 + OBBB), inflation-adjusted for future years'),
@@ -1341,6 +1343,25 @@ function App() {
   const [activeTab, setActiveTab] = useState('summary');
   const [showReal, setShowReal] = useState(false);
   const [calculating, setCalculating] = useState(false);
+  const [ratesInfo, setRatesInfo] = useState({ year: RATES_TAX_YEAR, updated: RATES_LAST_UPDATED });
+
+  /* Fetch latest rates from data/rates.json at startup */
+  useEffect(() => {
+    fetch('data/rates.json')
+      .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(data => {
+        if (data.states && data.states.length > 0) {
+          STATE_TAX_RATES = [
+            { abbr: "--", name: "-- Select State --", rate: 0 },
+            ...data.states
+          ];
+          RATES_LAST_UPDATED = data.updated || RATES_LAST_UPDATED;
+          RATES_TAX_YEAR = data.year || RATES_TAX_YEAR;
+          setRatesInfo({ year: data.year, updated: data.updated });
+        }
+      })
+      .catch(() => { /* Use embedded fallback rates — no action needed */ });
+  }, []);
 
   const onCalculate = useCallback(() => {
     setCalculating(true);
