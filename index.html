@@ -895,10 +895,85 @@ function Collapsible({ title, children, defaultOpen = false }) {
   );
 }
 
+/* ---- Sample Profiles ---- */
+const SAMPLE_PROFILES = [
+  { value: '', label: 'Start from a sample profile\u2026' },
+  { value: 'couple-mid50s', label: 'Couple, mid-50s, moderate savings',
+    desc: 'Ages 55 & 53, $500K traditional, recently retired, $70K/yr spending',
+    data: {
+      currentAge: 55, retirementAge: 55, lifeExpectancy: 90,
+      filingStatus: 'marriedFilingJointly',
+      spouseAge: 53, spouseLifeExpectancy: 92,
+      traditionalBalance: 500000, rothBalance: 50000,
+      taxableBalance: 100000, hsaBalance: 15000,
+      annualContributions: { traditional: 0, roth: 0, taxable: 0, hsa: 0 },
+      grossIncome: 0,
+      ssAnnualBenefit: 28000, ssStartAge: 67,
+      spouseSsBenefit: 22000, spouseSsStartAge: 67,
+      pensionIncome: 0, annualSpending: 70000
+    }
+  },
+  { value: 'high-earner-early', label: 'High earner, early retiree, single',
+    desc: 'Age 50, single, $1.2M traditional, planning to retire at 52',
+    data: {
+      currentAge: 50, retirementAge: 52, lifeExpectancy: 90,
+      filingStatus: 'single',
+      spouseAge: '', spouseLifeExpectancy: 90,
+      traditionalBalance: 1200000, rothBalance: 200000,
+      taxableBalance: 400000, hsaBalance: 50000,
+      annualContributions: { traditional: 23500, roth: 7000, taxable: 30000, hsa: 4300 },
+      grossIncome: 250000,
+      ssAnnualBenefit: 36000, ssStartAge: 67,
+      spouseSsBenefit: '', spouseSsStartAge: 67,
+      pensionIncome: 0, annualSpending: 100000
+    }
+  },
+  { value: 'late-starter-60', label: 'Couple, 60, playing catch-up',
+    desc: 'Ages 60 & 58, $250K traditional, still working part-time',
+    data: {
+      currentAge: 60, retirementAge: 63, lifeExpectancy: 88,
+      filingStatus: 'marriedFilingJointly',
+      spouseAge: 58, spouseLifeExpectancy: 90,
+      traditionalBalance: 250000, rothBalance: 20000,
+      taxableBalance: 60000, hsaBalance: 8000,
+      annualContributions: { traditional: 15000, roth: 3000, taxable: 5000, hsa: 0 },
+      grossIncome: 85000,
+      ssAnnualBenefit: 24000, ssStartAge: 67,
+      spouseSsBenefit: 18000, spouseSsStartAge: 67,
+      pensionIncome: 0, annualSpending: 55000
+    }
+  },
+  { value: 'affluent-near-rmd', label: 'Affluent couple nearing RMDs',
+    desc: 'Ages 68 & 65, $2M traditional, already retired, pension income',
+    data: {
+      currentAge: 68, retirementAge: 62, lifeExpectancy: 92,
+      filingStatus: 'marriedFilingJointly',
+      spouseAge: 65, spouseLifeExpectancy: 94,
+      traditionalBalance: 2000000, rothBalance: 300000,
+      taxableBalance: 500000, hsaBalance: 40000,
+      annualContributions: { traditional: 0, roth: 0, taxable: 0, hsa: 0 },
+      grossIncome: 0,
+      ssAnnualBenefit: 38000, ssStartAge: 67,
+      spouseSsBenefit: 32000, spouseSsStartAge: 67,
+      pensionIncome: 24000, annualSpending: 120000
+    }
+  }
+];
+
 /* ---- Input Form Component ---- */
 function InputForm({ inputs, setInputs, onCalculate }) {
+  const [showAdvancedGrowth, setShowAdvancedGrowth] = useState(false);
+
   const update = (field, value) => {
-    setInputs(prev => ({ ...prev, [field]: value }));
+    setInputs(prev => {
+      const next = { ...prev, [field]: value };
+      /* Keep all growth rates in sync when advanced mode is off */
+      if (field === 'preRetirementGrowth' && !showAdvancedGrowth) {
+        next.rothGrowth = value;
+        next.taxableGrowth = value;
+      }
+      return next;
+    });
   };
   const updateNested = (parent, field, value) => {
     setInputs(prev => ({
@@ -907,10 +982,30 @@ function InputForm({ inputs, setInputs, onCalculate }) {
     }));
   };
 
+  const applyProfile = (profileValue) => {
+    const profile = SAMPLE_PROFILES.find(p => p.value === profileValue);
+    if (!profile || !profile.data) return;
+    setInputs(prev => ({
+      ...prev,
+      ...profile.data,
+      /* Preserve state selection and assumptions */
+      stateAbbr: prev.stateAbbr,
+      stateTaxRate: prev.stateTaxRate,
+      preRetirementGrowth: prev.preRetirementGrowth,
+      rothGrowth: prev.rothGrowth,
+      taxableGrowth: prev.taxableGrowth,
+      inflationRate: prev.inflationRate,
+      bracketInflation: prev.bracketInflation,
+      targetBracket: prev.targetBracket,
+      customConversion: prev.customConversion,
+      taxPaymentSource: prev.taxPaymentSource
+    }));
+  };
+
   const isMFJ = inputs.filingStatus === 'marriedFilingJointly';
 
   const field = (label, fieldName, opts = {}) => {
-    const { type = 'number', min, max, step, suffix, options, nested, parentField } = opts;
+    const { type = 'number', min, max, step, suffix, options, nested, parentField, placeholder } = opts;
     const val = nested ? (inputs[parentField] || {})[fieldName] : inputs[fieldName];
     const onChange = nested
       ? (e) => updateNested(parentField, fieldName, type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value)
@@ -932,6 +1027,7 @@ function InputForm({ inputs, setInputs, onCalculate }) {
       React.createElement('input', {
         type: 'number',
         value: val === undefined || val === null ? '' : val,
+        placeholder: placeholder || '',
         onChange,
         min, max, step: step || (suffix === '%' ? '0.1' : '1')
       })
@@ -947,10 +1043,28 @@ function InputForm({ inputs, setInputs, onCalculate }) {
       }, 'Calculate')
     ),
 
+    /* Sample profile selector */
+    React.createElement('div', {
+      style: { marginBottom: 16, padding: '12px 16px', background: 'var(--bg-alt)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }
+    },
+      React.createElement('label', { style: { display: 'block', marginBottom: 6, fontWeight: 600, fontSize: '0.85rem' } },
+        'Quick Start \u2014 pick a profile to pre-fill, then adjust to match your situation'),
+      React.createElement('select', {
+        value: '',
+        onChange: (e) => applyProfile(e.target.value),
+        style: { width: '100%', padding: '8px 12px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', fontSize: '0.9rem' }
+      },
+        SAMPLE_PROFILES.map(p =>
+          React.createElement('option', { key: p.value, value: p.value },
+            p.desc ? `${p.label} \u2014 ${p.desc}` : p.label)
+        )
+      )
+    ),
+
     React.createElement('div', { className: 'form-section-title' }, 'Personal Info'),
     React.createElement('div', { className: 'form-grid' },
       field('Current Age', 'currentAge', { min: 20, max: 100 }),
-      field('Retirement Age', 'retirementAge', { min: 20, max: 100 }),
+      field('Retirement Age', 'retirementAge', { min: 20, max: 100, placeholder: 'same as current if retired' }),
       field('Life Expectancy', 'lifeExpectancy', { min: 50, max: 120 }),
       field('Filing Status', 'filingStatus', {
         type: 'select',
@@ -1013,19 +1127,33 @@ function InputForm({ inputs, setInputs, onCalculate }) {
     React.createElement('div', { className: 'form-section-title' }, 'Income'),
     React.createElement('div', { className: 'form-grid' },
       field('Current Gross Income', 'grossIncome', { min: 0 }),
-      field('Social Security Benefit (at FRA)', 'ssAnnualBenefit', { min: 0 }),
+      field('Social Security (annual, at FRA)', 'ssAnnualBenefit', { min: 0, placeholder: 'check ssa.gov/myaccount' }),
       field('SS Start Age', 'ssStartAge', { min: 62, max: 70 }),
       isMFJ && field('Spouse SS Benefit', 'spouseSsBenefit', { min: 0 }),
       isMFJ && field('Spouse SS Start Age', 'spouseSsStartAge', { min: 62, max: 70 }),
       field('Pension / Other Income', 'pensionIncome', { min: 0 }),
-      field('Annual Retirement Spending', 'annualSpending', { min: 0 })
+      field('Annual Retirement Spending', 'annualSpending', { min: 0, placeholder: '~70-80% of pre-retirement income' })
     ),
 
     React.createElement('div', { className: 'form-section-title' }, 'Assumptions'),
     React.createElement('div', { className: 'form-grid' },
-      field('Pre-Tax Growth Rate', 'preRetirementGrowth', { suffix: '%', min: 0, max: 20 }),
-      field('Roth Growth Rate', 'rothGrowth', { suffix: '%', min: 0, max: 20 }),
-      field('Taxable Growth Rate', 'taxableGrowth', { suffix: '%', min: 0, max: 20 }),
+      field('Investment Growth Rate', 'preRetirementGrowth', { suffix: '%', min: 0, max: 20 }),
+      React.createElement('div', { className: 'form-group', key: 'advGrowthToggle' },
+        React.createElement('label', { style: { visibility: 'hidden' } }, ' '),
+        React.createElement('button', {
+          type: 'button',
+          onClick: () => {
+            if (showAdvancedGrowth) {
+              /* Collapsing: sync all rates back to the main rate */
+              setInputs(prev => ({ ...prev, rothGrowth: prev.preRetirementGrowth, taxableGrowth: prev.preRetirementGrowth }));
+            }
+            setShowAdvancedGrowth(!showAdvancedGrowth);
+          },
+          style: { background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.8rem', padding: 0, textDecoration: 'underline' }
+        }, showAdvancedGrowth ? 'Use single rate for all accounts' : 'Set different rates per account')
+      ),
+      showAdvancedGrowth && field('Roth Growth Rate', 'rothGrowth', { suffix: '%', min: 0, max: 20 }),
+      showAdvancedGrowth && field('Taxable Growth Rate', 'taxableGrowth', { suffix: '%', min: 0, max: 20 }),
       field('Inflation Rate', 'inflationRate', { suffix: '%', min: 0, max: 10 }),
       field('Bracket Inflation Adj.', 'bracketInflation', { suffix: '%', min: 0, max: 10 })
     ),
