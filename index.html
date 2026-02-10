@@ -1,0 +1,1350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Roth Conversion Ladder Optimizer</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<style>
+/* ============================================================
+   GLOBAL STYLES & CSS VARIABLES
+   ============================================================ */
+:root {
+  --bg-primary: #f8f9fa;
+  --bg-card: #ffffff;
+  --bg-input: #f1f5f9;
+  --text-primary: #1a202c;
+  --text-secondary: #4a5568;
+  --text-muted: #718096;
+  --border: #e2e8f0;
+  --accent-teal: #0d9488;
+  --accent-teal-light: #ccfbf1;
+  --accent-teal-dark: #0f766e;
+  --accent-green: #059669;
+  --accent-green-light: #d1fae5;
+  --accent-orange: #ea580c;
+  --accent-orange-light: #fff7ed;
+  --accent-red: #dc2626;
+  --accent-red-light: #fef2f2;
+  --accent-blue: #2563eb;
+  --accent-blue-light: #eff6ff;
+  --accent-purple: #7c3aed;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -4px rgba(0,0,0,0.04);
+  --radius: 8px;
+  --radius-lg: 12px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+.app-container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+h1 { font-size: 1.75rem; font-weight: 700; color: var(--accent-teal-dark); }
+h2 { font-size: 1.25rem; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; }
+h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; }
+
+/* Header */
+.app-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 24px; background: var(--bg-card); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md); margin-bottom: 24px;
+}
+.app-header-subtitle { color: var(--text-muted); font-size: 0.875rem; }
+
+/* Cards */
+.card {
+  background: var(--bg-card); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md); padding: 24px; margin-bottom: 20px;
+}
+.card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border);
+}
+
+/* Form styles */
+.form-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+.form-group { display: flex; flex-direction: column; }
+.form-group label {
+  font-size: 0.8rem; font-weight: 500; color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.form-group input, .form-group select {
+  padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius);
+  font-size: 0.9rem; background: var(--bg-input); transition: border-color 0.2s;
+}
+.form-group input:focus, .form-group select:focus {
+  outline: none; border-color: var(--accent-teal); box-shadow: 0 0 0 3px rgba(13,148,136,0.1);
+}
+.form-group input[type="number"] { -moz-appearance: textfield; }
+.form-group input::-webkit-outer-spin-button,
+.form-group input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.form-section-title {
+  font-size: 0.85rem; font-weight: 600; color: var(--accent-teal-dark);
+  text-transform: uppercase; letter-spacing: 0.05em;
+  margin: 20px 0 12px; padding-top: 16px; border-top: 1px solid var(--border);
+}
+.form-section-title:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+
+/* Buttons */
+.btn {
+  padding: 10px 24px; border: none; border-radius: var(--radius);
+  font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: all 0.2s;
+}
+.btn-primary {
+  background: var(--accent-teal); color: white;
+}
+.btn-primary:hover { background: var(--accent-teal-dark); }
+.btn-secondary {
+  background: var(--bg-input); color: var(--text-secondary); border: 1px solid var(--border);
+}
+.btn-secondary:hover { background: var(--border); }
+.btn-sm { padding: 6px 14px; font-size: 0.8rem; }
+
+/* Summary cards */
+.summary-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 16px; margin-bottom: 24px;
+}
+.summary-card {
+  padding: 20px; border-radius: var(--radius-lg); border: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.summary-card.positive { border-left: 4px solid var(--accent-green); }
+.summary-card.negative { border-left: 4px solid var(--accent-orange); }
+.summary-card.neutral { border-left: 4px solid var(--accent-blue); }
+.summary-card.warning { border-left: 4px solid var(--accent-red); }
+.summary-card .label { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.summary-card .value { font-size: 1.5rem; font-weight: 700; margin-top: 4px; }
+.summary-card .sub { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
+.summary-card .value.green { color: var(--accent-green); }
+.summary-card .value.orange { color: var(--accent-orange); }
+.summary-card .value.blue { color: var(--accent-blue); }
+.summary-card .value.red { color: var(--accent-red); }
+
+/* Table styles */
+.table-container { overflow-x: auto; max-height: 600px; overflow-y: auto; }
+.data-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.data-table thead { position: sticky; top: 0; z-index: 1; }
+.data-table th {
+  background: var(--accent-teal-dark); color: white; padding: 10px 8px;
+  text-align: right; font-weight: 600; white-space: nowrap;
+}
+.data-table th:first-child { text-align: left; }
+.data-table td { padding: 8px; text-align: right; border-bottom: 1px solid var(--border); }
+.data-table td:first-child { text-align: left; }
+.data-table tr.conversion-row { background: var(--accent-teal-light); }
+.data-table tr.rmd-row { background: var(--accent-orange-light); }
+.data-table tr.irmaa-flag { position: relative; }
+.data-table tr.irmaa-flag td:last-child { color: var(--accent-red); font-weight: 600; }
+.data-table tbody tr:hover { background: #f0fdfa; }
+
+/* Tabs */
+.tabs { display: flex; gap: 4px; margin-bottom: 20px; flex-wrap: wrap; }
+.tab {
+  padding: 8px 16px; border-radius: var(--radius); cursor: pointer;
+  font-size: 0.85rem; font-weight: 500; border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--text-secondary); transition: all 0.2s;
+}
+.tab.active { background: var(--accent-teal); color: white; border-color: var(--accent-teal); }
+.tab:hover:not(.active) { background: var(--bg-input); }
+
+/* Toggle */
+.toggle-group { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; }
+.toggle-switch {
+  width: 40px; height: 22px; background: var(--border); border-radius: 11px;
+  position: relative; cursor: pointer; transition: background 0.2s;
+}
+.toggle-switch.active { background: var(--accent-teal); }
+.toggle-switch::after {
+  content: ''; position: absolute; width: 18px; height: 18px;
+  border-radius: 50%; background: white; top: 2px; left: 2px; transition: left 0.2s;
+}
+.toggle-switch.active::after { left: 20px; }
+
+/* Chart container */
+.chart-container { width: 100%; height: 350px; }
+.charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
+
+/* Collapsible */
+.collapsible-header {
+  display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer; padding: 12px 0; user-select: none;
+}
+.collapsible-header .arrow { transition: transform 0.2s; font-size: 0.8rem; }
+.collapsible-header .arrow.open { transform: rotate(90deg); }
+.collapsible-content { overflow: hidden; transition: max-height 0.3s; }
+.assumptions-list { font-size: 0.8rem; color: var(--text-secondary); line-height: 1.8; }
+.assumptions-list li { margin-left: 20px; }
+
+/* IRMAA badge */
+.irmaa-badge {
+  display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem;
+  font-weight: 600; background: var(--accent-red-light); color: var(--accent-red);
+}
+
+/* Bracket viz */
+.bracket-bar { display: flex; height: 24px; border-radius: 4px; overflow: hidden; margin: 2px 0; }
+.bracket-segment { display: flex; align-items: center; justify-content: center; font-size: 0.65rem; color: white; font-weight: 600; min-width: 1px; }
+
+/* Loading */
+.loading { text-align: center; padding: 40px; color: var(--text-muted); }
+.spinner {
+  width: 40px; height: 40px; border: 3px solid var(--border);
+  border-top: 3px solid var(--accent-teal); border-radius: 50%;
+  animation: spin 0.8s linear infinite; margin: 0 auto 12px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .form-grid { grid-template-columns: 1fr 1fr; }
+  .summary-grid { grid-template-columns: 1fr; }
+  .app-header { flex-direction: column; gap: 8px; }
+}
+@media (max-width: 480px) {
+  .form-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+/* ============================================================
+   ROTH CONVERSION LADDER OPTIMIZER
+   A single-page React application for calculating optimal
+   Roth conversion strategies to minimize lifetime tax liability.
+   ============================================================ */
+
+const { useState, useMemo, useCallback, useRef, useEffect } = React;
+const {
+  LineChart, Line, AreaChart, Area, BarChart, Bar,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  ReferenceLine
+} = Recharts;
+
+/* ============================================================
+   MODULE 1: TAX DATA
+   All tax brackets, tables, and thresholds as constants.
+   Base year is 2025; future years are inflation-adjusted.
+   ============================================================ */
+const TAX_DATA = {
+  /* Federal income tax brackets [rate, upperBound] */
+  brackets: {
+    single: [
+      [0.10, 11925], [0.12, 48475], [0.22, 103350], [0.24, 197300],
+      [0.32, 250525], [0.35, 626350], [0.37, Infinity]
+    ],
+    marriedFilingJointly: [
+      [0.10, 23850], [0.12, 96950], [0.22, 206700], [0.24, 394600],
+      [0.32, 501050], [0.35, 751600], [0.37, Infinity]
+    ],
+    marriedFilingSeparately: [
+      [0.10, 11925], [0.12, 48475], [0.22, 103350], [0.24, 197300],
+      [0.32, 250525], [0.35, 375800], [0.37, Infinity]
+    ]
+  },
+
+  /* Standard deduction (2025 base including OBBB 5% boost) */
+  standardDeduction: {
+    single: 15750,
+    marriedFilingJointly: 31500,
+    marriedFilingSeparately: 15750,
+    additional65PlusSingle: 2000,
+    additional65PlusMarried: 1600
+  },
+
+  /* Long-term capital gains brackets [rate, upperBound of taxable income] */
+  capitalGainsBrackets: {
+    single: [[0.00, 48350], [0.15, 533400], [0.20, Infinity]],
+    marriedFilingJointly: [[0.00, 96700], [0.15, 600050], [0.20, Infinity]],
+    marriedFilingSeparately: [[0.00, 48350], [0.15, 300000], [0.20, Infinity]]
+  },
+
+  /* NIIT: 3.8% surtax on lesser of NII or MAGI above threshold */
+  niit: {
+    rate: 0.038,
+    thresholds: { single: 200000, marriedFilingJointly: 250000, marriedFilingSeparately: 125000 }
+  },
+
+  /* Social Security taxation thresholds (provisional income) */
+  socialSecurity: {
+    single: { baseAmount: 25000, additionalAmount: 34000 },
+    marriedFilingJointly: { baseAmount: 32000, additionalAmount: 44000 },
+    marriedFilingSeparately: { baseAmount: 0, additionalAmount: 0 }
+  },
+
+  /* IRMAA thresholds (2025, based on 2023 MAGI) - monthly surcharges */
+  irmaa: {
+    single: [
+      { magi: 106000, partB: 185.00, partD: 13.70 },
+      { magi: 133000, partB: 259.00, partD: 35.30 },
+      { magi: 167000, partB: 370.00, partD: 57.00 },
+      { magi: 200000, partB: 480.90, partD: 78.60 },
+      { magi: 500000, partB: 554.40, partD: 85.80 }
+    ],
+    marriedFilingJointly: [
+      { magi: 212000, partB: 185.00, partD: 13.70 },
+      { magi: 266000, partB: 259.00, partD: 35.30 },
+      { magi: 334000, partB: 370.00, partD: 57.00 },
+      { magi: 400000, partB: 480.90, partD: 78.60 },
+      { magi: 750000, partB: 554.40, partD: 85.80 }
+    ],
+    marriedFilingSeparately: [
+      { magi: 106000, partB: 480.90, partD: 78.60 },
+      { magi: 394000, partB: 554.40, partD: 85.80 }
+    ]
+  },
+
+  /* Bracket colors for visualization */
+  bracketColors: {
+    0.10: '#059669', 0.12: '#0d9488', 0.22: '#2563eb',
+    0.24: '#7c3aed', 0.32: '#db2777', 0.35: '#ea580c', 0.37: '#dc2626'
+  },
+
+  /* Base year for all amounts */
+  baseYear: 2025
+};
+
+/* ============================================================
+   MODULE 2: RMD CALCULATOR
+   IRS Uniform Lifetime Table III and Joint Life Table II.
+   RMD starting age: 73 (SECURE 2.0), moving to 75 in 2033.
+   ============================================================ */
+
+/* Uniform Lifetime Table III — age to distribution period */
+const UNIFORM_LIFETIME_TABLE = {
+  72: 27.4, 73: 26.5, 74: 25.5, 75: 24.6, 76: 23.7, 77: 22.9, 78: 22.0,
+  79: 21.1, 80: 20.2, 81: 19.4, 82: 18.5, 83: 17.7, 84: 16.8, 85: 16.0,
+  86: 15.2, 87: 14.4, 88: 13.7, 89: 12.9, 90: 12.2, 91: 11.5, 92: 10.8,
+  93: 10.1, 94: 9.5, 95: 8.9, 96: 8.4, 97: 7.8, 98: 7.3, 99: 6.8,
+  100: 6.4, 101: 6.0, 102: 5.6, 103: 5.2, 104: 4.9, 105: 4.6, 106: 4.3,
+  107: 4.1, 108: 3.9, 109: 3.7, 110: 3.5, 111: 3.4, 112: 3.3, 113: 3.1,
+  114: 3.0, 115: 2.9, 116: 2.8, 117: 2.7, 118: 2.5, 119: 2.3, 120: 2.0
+};
+
+/* Joint Life Table II — [ownerAge][beneficiaryAge] = divisor
+   Used when sole beneficiary is spouse >10 years younger.
+   Subset covering owner ages 70-100 and beneficiary ages 40-89. */
+const JOINT_LIFE_TABLE = {};
+(function buildJointLifeTable() {
+  /* This is a simplified approximation of IRS Joint Life Table II.
+     For each (owner, beneficiary) pair, the divisor is approximately:
+     the average of their individual life expectancies. */
+  for (let owner = 70; owner <= 100; owner++) {
+    JOINT_LIFE_TABLE[owner] = {};
+    for (let bene = 40; bene <= 100; bene++) {
+      /* Approximate joint life expectancy using actuarial approximation */
+      const ownerLE = Math.max(1, 86.5 - owner + (owner < 80 ? 2 : 0));
+      const beneLE = Math.max(1, 88 - bene + (bene < 70 ? 2 : 0));
+      JOINT_LIFE_TABLE[owner][bene] = Math.round((ownerLE + beneLE) * 10) / 10;
+    }
+  }
+  /* Override with actual IRS table values for common combinations */
+  const actuals = {
+    73: {55: 31.1, 56: 30.5, 57: 30.0, 58: 29.4, 59: 28.9, 60: 28.4, 61: 27.9, 62: 27.4},
+    75: {55: 30.0, 56: 29.4, 57: 28.9, 58: 28.3, 59: 27.8, 60: 27.3, 61: 26.8, 62: 26.3, 63: 25.9, 64: 25.4},
+    77: {55: 29.1, 57: 27.9, 60: 26.3, 62: 25.4, 65: 24.1, 67: 23.2},
+    80: {55: 28.1, 57: 26.9, 60: 25.3, 62: 24.3, 65: 22.9, 67: 22.0, 69: 21.1},
+    85: {55: 26.7, 60: 24.0, 65: 21.5, 70: 19.4, 73: 18.2, 75: 17.2},
+    90: {55: 25.9, 60: 23.1, 65: 20.4, 70: 18.1, 75: 16.1, 78: 15.0, 80: 14.2}
+  };
+  for (const [owner, entries] of Object.entries(actuals)) {
+    for (const [bene, val] of Object.entries(entries)) {
+      if (!JOINT_LIFE_TABLE[+owner]) JOINT_LIFE_TABLE[+owner] = {};
+      JOINT_LIFE_TABLE[+owner][+bene] = val;
+    }
+  }
+})();
+
+/**
+ * Calculate RMD for a given year.
+ * @param {number} age - Owner's age at end of year
+ * @param {number} balance - Account balance at end of prior year
+ * @param {number} spouseAge - Spouse's age (if applicable)
+ * @param {boolean} isMFJ - Whether filing jointly
+ * @param {number} year - Calendar year
+ * @returns {number} Required Minimum Distribution amount
+ */
+function calculateRMD(age, balance, spouseAge, isMFJ, year) {
+  /* RMD start age: 73 through 2032, 75 starting 2033 (SECURE 2.0) */
+  const rmdStartAge = year >= 2033 ? 75 : 73;
+  if (age < rmdStartAge) return 0;
+  if (balance <= 0) return 0;
+
+  let divisor;
+
+  /* Use Joint Life Table if spouse is sole beneficiary and >10 years younger */
+  if (isMFJ && spouseAge && (age - spouseAge > 10)) {
+    const ownerKey = Math.min(100, Math.max(70, age));
+    const beneKey = Math.min(100, Math.max(40, spouseAge));
+    divisor = (JOINT_LIFE_TABLE[ownerKey] && JOINT_LIFE_TABLE[ownerKey][beneKey])
+      ? JOINT_LIFE_TABLE[ownerKey][beneKey]
+      : UNIFORM_LIFETIME_TABLE[Math.min(120, Math.max(72, age))] || 2.0;
+  } else {
+    const tableAge = Math.min(120, Math.max(72, age));
+    divisor = UNIFORM_LIFETIME_TABLE[tableAge] || 2.0;
+  }
+
+  return balance / divisor;
+}
+
+/* ============================================================
+   MODULE 3: SOCIAL SECURITY TAX CALCULATOR
+   Calculates taxable portion of SS benefits based on
+   provisional income and filing status.
+   ============================================================ */
+
+/**
+ * Calculate taxable Social Security amount.
+ * Provisional income = AGI + tax-exempt interest + 50% of SS benefits
+ * @param {number} ssIncome - Total Social Security income
+ * @param {number} otherIncome - AGI excluding SS
+ * @param {string} filingStatus - Filing status key
+ * @returns {number} Taxable portion of Social Security
+ */
+function calculateTaxableSS(ssIncome, otherIncome, filingStatus) {
+  if (ssIncome <= 0) return 0;
+  const thresholds = TAX_DATA.socialSecurity[filingStatus] || TAX_DATA.socialSecurity.single;
+  const provisionalIncome = otherIncome + ssIncome * 0.5;
+
+  if (filingStatus === 'marriedFilingSeparately') {
+    /* MFS: 85% of SS is taxable if lived with spouse at any point */
+    return ssIncome * 0.85;
+  }
+
+  if (provisionalIncome <= thresholds.baseAmount) {
+    return 0;
+  } else if (provisionalIncome <= thresholds.additionalAmount) {
+    return Math.min(ssIncome * 0.5, (provisionalIncome - thresholds.baseAmount) * 0.5);
+  } else {
+    const tier1 = Math.min(
+      (thresholds.additionalAmount - thresholds.baseAmount) * 0.5,
+      ssIncome * 0.5
+    );
+    const tier2 = (provisionalIncome - thresholds.additionalAmount) * 0.85;
+    return Math.min(ssIncome * 0.85, tier1 + tier2);
+  }
+}
+
+/* ============================================================
+   MODULE 4: FEDERAL TAX CALCULATOR
+   Progressive tax computation with inflation-adjusted brackets.
+   ============================================================ */
+
+/**
+ * Inflate a dollar amount from base year to target year.
+ */
+function inflateAmount(amount, fromYear, toYear, rate) {
+  if (amount === Infinity) return Infinity;
+  const years = toYear - fromYear;
+  return amount * Math.pow(1 + rate, years);
+}
+
+/**
+ * Get inflation-adjusted brackets for a given year and filing status.
+ */
+function getAdjustedBrackets(filingStatus, year, inflationRate) {
+  const baseBrackets = TAX_DATA.brackets[filingStatus];
+  if (!baseBrackets) return TAX_DATA.brackets.single;
+  return baseBrackets.map(([rate, upper]) => [
+    rate,
+    inflateAmount(upper, TAX_DATA.baseYear, year, inflationRate)
+  ]);
+}
+
+/**
+ * Get inflation-adjusted standard deduction.
+ */
+function getStandardDeduction(filingStatus, age, spouseAge, year, inflationRate) {
+  const sd = TAX_DATA.standardDeduction;
+  let base;
+  if (filingStatus === 'marriedFilingJointly') base = sd.marriedFilingJointly;
+  else if (filingStatus === 'marriedFilingSeparately') base = sd.marriedFilingSeparately;
+  else base = sd.single;
+
+  let deduction = inflateAmount(base, TAX_DATA.baseYear, year, inflationRate);
+
+  /* Additional deduction for age 65+ */
+  if (age >= 65) {
+    if (filingStatus === 'single') {
+      deduction += inflateAmount(sd.additional65PlusSingle, TAX_DATA.baseYear, year, inflationRate);
+    } else {
+      deduction += inflateAmount(sd.additional65PlusMarried, TAX_DATA.baseYear, year, inflationRate);
+    }
+  }
+  if (filingStatus === 'marriedFilingJointly' && spouseAge && spouseAge >= 65) {
+    deduction += inflateAmount(sd.additional65PlusMarried, TAX_DATA.baseYear, year, inflationRate);
+  }
+
+  return deduction;
+}
+
+/**
+ * Calculate federal income tax using progressive brackets.
+ * @param {number} taxableIncome - Income after deductions
+ * @param {Array} brackets - Adjusted brackets for the year
+ * @returns {number} Federal tax owed
+ */
+function calculateFederalTax(taxableIncome, brackets) {
+  if (taxableIncome <= 0) return 0;
+  let tax = 0;
+  let prevUpper = 0;
+  for (const [rate, upper] of brackets) {
+    const taxableInBracket = Math.min(taxableIncome, upper) - prevUpper;
+    if (taxableInBracket > 0) {
+      tax += taxableInBracket * rate;
+    }
+    if (taxableIncome <= upper) break;
+    prevUpper = upper;
+  }
+  return tax;
+}
+
+/**
+ * Determine which bracket a given income falls into.
+ */
+function getMarginalBracket(taxableIncome, brackets) {
+  for (const [rate, upper] of brackets) {
+    if (taxableIncome <= upper) return rate;
+  }
+  return 0.37;
+}
+
+/**
+ * Get bracket fill details for visualization.
+ */
+function getBracketFill(taxableIncome, brackets) {
+  const fills = [];
+  let prevUpper = 0;
+  for (const [rate, upper] of brackets) {
+    const bracketSize = (upper === Infinity ? taxableIncome * 1.5 : upper) - prevUpper;
+    const filled = Math.max(0, Math.min(taxableIncome, upper === Infinity ? taxableIncome : upper) - prevUpper);
+    if (bracketSize > 0) {
+      fills.push({ rate, filled, capacity: bracketSize, lower: prevUpper, upper: upper === Infinity ? null : upper });
+    }
+    if (taxableIncome <= upper) break;
+    prevUpper = upper;
+  }
+  return fills;
+}
+
+/* ============================================================
+   MODULE 5: IRMAA CALCULATOR
+   Medicare surcharges based on MAGI from 2 years prior.
+   ============================================================ */
+
+/**
+ * Calculate annual IRMAA surcharge.
+ * @param {number} magi - MAGI for the relevant tax year (2 years prior)
+ * @param {string} filingStatus - Filing status key
+ * @param {number} year - Year surcharge applies (MAGI is from year-2)
+ * @param {number} inflationRate - For threshold adjustment
+ * @param {number} numPeople - 1 for single, 2 for MFJ
+ * @returns {{ annual: number, tier: string }}
+ */
+function calculateIRMAA(magi, filingStatus, year, inflationRate, numPeople = 1) {
+  const tiers = TAX_DATA.irmaa[filingStatus] || TAX_DATA.irmaa.single;
+  let surcharge = 0;
+  let tier = 'None';
+
+  for (let i = tiers.length - 1; i >= 0; i--) {
+    const adjustedMagi = inflateAmount(tiers[i].magi, TAX_DATA.baseYear, year - 2, inflationRate);
+    if (magi > adjustedMagi) {
+      surcharge = (tiers[i].partB + tiers[i].partD) * 12 * numPeople;
+      tier = `Tier ${i + 1}`;
+      break;
+    }
+  }
+
+  return { annual: surcharge, tier };
+}
+
+/* ============================================================
+   MODULE 6: PROJECTION ENGINE
+   Year-by-year simulation for each scenario.
+   ============================================================ */
+
+/**
+ * Run a complete year-by-year projection.
+ * @param {Object} inputs - All user inputs
+ * @param {string} scenario - 'noConversion', 'optimized', or 'custom'
+ * @param {number} customConversion - Fixed annual conversion for 'custom' scenario
+ * @param {number} targetBracketRate - Target bracket for optimized scenario
+ * @param {string} taxPaymentSource - 'taxable' or 'conversion'
+ * @returns {Array} Year-by-year projection data
+ */
+function runProjection(inputs, scenario, customConversion = 0, targetBracketRate = 0.24, taxPaymentSource = 'taxable') {
+  const {
+    currentAge, retirementAge, lifeExpectancy, filingStatus,
+    stateTaxRate, spouseAge, spouseLifeExpectancy,
+    traditionalBalance, rothBalance, taxableBalance, hsaBalance,
+    annualContributions, grossIncome, ssAnnualBenefit, ssStartAge,
+    spouseSsBenefit, spouseSsStartAge, pensionIncome, annualSpending,
+    preRetirementGrowth, rothGrowth, taxableGrowth, inflationRate,
+    bracketInflation
+  } = inputs;
+
+  const currentYear = 2025;
+  const isRetired = retirementAge <= currentAge;
+  const isMFJ = filingStatus === 'marriedFilingJointly';
+  const maxAge = Math.max(lifeExpectancy, isMFJ && spouseLifeExpectancy ? spouseLifeExpectancy + (currentAge - (spouseAge || currentAge)) : lifeExpectancy);
+
+  let tradBal = traditionalBalance || 0;
+  let rothBal = rothBalance || 0;
+  let taxBal = taxableBalance || 0;
+  let hsaBal = hsaBalance || 0;
+  let cumulativeTax = 0;
+  const results = [];
+  const magiHistory = []; /* Track MAGI for IRMAA 2-year lookback */
+
+  for (let yearOffset = 0; yearOffset <= maxAge - currentAge; yearOffset++) {
+    const year = currentYear + yearOffset;
+    const age = currentAge + yearOffset;
+    const sAge = spouseAge ? spouseAge + yearOffset : null;
+    const working = !isRetired && age < retirementAge;
+
+    /* Growth on balances (beginning of year) */
+    const tradGrowthAmt = tradBal * (preRetirementGrowth / 100);
+    const rothGrowthAmt = rothBal * (rothGrowth / 100);
+    const taxGrowthAmt = taxBal * (taxableGrowth / 100);
+    const hsaGrowthAmt = hsaBal * 0.05;
+
+    tradBal += tradGrowthAmt;
+    rothBal += rothGrowthAmt;
+    taxBal += taxGrowthAmt;
+    hsaBal += hsaGrowthAmt;
+
+    /* Pre-retirement contributions */
+    if (working && annualContributions) {
+      tradBal += annualContributions.traditional || 0;
+      rothBal += annualContributions.roth || 0;
+      taxBal += annualContributions.taxable || 0;
+      hsaBal += annualContributions.hsa || 0;
+    }
+
+    /* Income sources */
+    const salary = working ? (grossIncome || 0) : 0;
+    const pension = (!working || isRetired) ? inflateAmount(pensionIncome || 0, currentYear, year, inflationRate / 100) : 0;
+    let ssIncome = 0;
+    if (age >= ssStartAge) {
+      ssIncome += inflateAmount(ssAnnualBenefit || 0, currentYear, year, inflationRate / 100 * 0.8); // SS COLA ~80% of inflation
+    }
+    if (isMFJ && sAge && sAge >= (spouseSsStartAge || 67)) {
+      ssIncome += inflateAmount(spouseSsBenefit || 0, currentYear, year, inflationRate / 100 * 0.8);
+    }
+
+    /* RMD calculation */
+    const rmd = calculateRMD(age, tradBal, sAge, isMFJ, year);
+
+    /* Conversion amount */
+    let conversionAmount = 0;
+    if (scenario === 'optimized' && !working) {
+      const brackets = getAdjustedBrackets(filingStatus, year, bracketInflation / 100);
+      const stdDed = getStandardDeduction(filingStatus, age, sAge, year, bracketInflation / 100);
+
+      /* Find target bracket ceiling */
+      let targetCeiling = 0;
+      for (const [rate, upper] of brackets) {
+        if (rate <= targetBracketRate) {
+          targetCeiling = upper;
+        }
+      }
+
+      /* Iteratively find optimal conversion accounting for SS taxation feedback.
+         Conversion income increases provisional income, which can increase
+         the taxable portion of SS, which further increases taxable income. */
+      let testConv = 0;
+      const maxConv = Math.max(0, tradBal - rmd);
+      for (let iter = 0; iter < 5; iter++) {
+        const testTotalIncome = salary + pension + rmd + testConv;
+        const testTaxableSS = calculateTaxableSS(ssIncome, testTotalIncome, filingStatus);
+        const testAGI = testTotalIncome + testTaxableSS;
+        const testTaxableIncome = Math.max(0, testAGI - stdDed);
+        const room = Math.max(0, targetCeiling - testTaxableIncome + testConv);
+        testConv = Math.min(room, maxConv);
+      }
+      conversionAmount = Math.max(0, testConv);
+
+      /* Don't bother with tiny conversions */
+      if (conversionAmount < 1000) conversionAmount = 0;
+    } else if (scenario === 'custom' && !working) {
+      const inflatedCustom = inflateAmount(customConversion, currentYear, year, inflationRate / 100);
+      conversionAmount = Math.min(inflatedCustom, Math.max(0, tradBal - rmd));
+    }
+
+    /* Execute conversion */
+    tradBal -= (rmd + conversionAmount);
+    tradBal = Math.max(0, tradBal);
+    rothBal += conversionAmount;
+
+    /* Calculate total income and taxes */
+    const totalOrdinaryIncome = salary + pension + rmd + conversionAmount;
+    const taxableSS = calculateTaxableSS(ssIncome, totalOrdinaryIncome, filingStatus);
+    const agi = totalOrdinaryIncome + taxableSS;
+    const stdDed = getStandardDeduction(filingStatus, age, sAge, year, bracketInflation / 100);
+    const taxableIncome = Math.max(0, agi - stdDed);
+    const brackets = getAdjustedBrackets(filingStatus, year, bracketInflation / 100);
+    const federalTax = calculateFederalTax(taxableIncome, brackets);
+    const stateTax = agi * (stateTaxRate / 100);
+    const marginalRate = getMarginalBracket(taxableIncome, brackets);
+
+    /* Store MAGI for IRMAA lookback */
+    magiHistory.push(agi);
+
+    /* IRMAA (applies to those 65+, based on MAGI from 2 years prior) */
+    let irmaa = { annual: 0, tier: 'None' };
+    if (age >= 65) {
+      /* Use MAGI from 2 years prior if available, otherwise current year */
+      const lookbackIndex = magiHistory.length - 3; /* 2 years prior */
+      const irmaaMagi = lookbackIndex >= 0 ? magiHistory[lookbackIndex] : agi;
+      const irmaaPeople = isMFJ ? 2 : 1;
+      irmaa = calculateIRMAA(irmaaMagi, filingStatus, year, bracketInflation / 100, irmaaPeople);
+    }
+
+    const totalTax = federalTax + stateTax + irmaa.annual;
+    cumulativeTax += totalTax;
+
+    /* Retirement spending and tax payment.
+       Income sources (RMD, SS, pension) cover spending first.
+       Shortfall drawn from taxable, then Roth, then HSA. */
+    if (!working) {
+      const inflatedSpending = inflateAmount(annualSpending || 0, currentYear, year, inflationRate / 100);
+      /* Available cash from income sources (RMD is distributed as cash, SS & pension too) */
+      const cashIncome = rmd + ssIncome + pension;
+      /* Total cash needed = spending + taxes (taxes must be paid from somewhere) */
+      const totalCashNeed = inflatedSpending + totalTax;
+      let shortfall = Math.max(0, totalCashNeed - cashIncome);
+
+      if (taxPaymentSource === 'conversion' && conversionAmount > 0) {
+        /* When paying tax from conversion, Roth absorbs the tax cost */
+        rothBal -= Math.min(totalTax, rothBal);
+        shortfall = Math.max(0, inflatedSpending - cashIncome);
+      }
+
+      /* Draw shortfall from taxable first, then Roth, then HSA */
+      const fromTaxable = Math.min(shortfall, Math.max(0, taxBal));
+      taxBal -= fromTaxable;
+      shortfall -= fromTaxable;
+
+      const fromRoth = Math.min(shortfall, Math.max(0, rothBal));
+      rothBal -= fromRoth;
+      shortfall -= fromRoth;
+
+      const fromHSA = Math.min(shortfall, Math.max(0, hsaBal));
+      hsaBal -= fromHSA;
+    }
+
+    /* Ensure no negative balances */
+    tradBal = Math.max(0, tradBal);
+    rothBal = Math.max(0, rothBal);
+    taxBal = Math.max(0, taxBal);
+    hsaBal = Math.max(0, hsaBal);
+
+    const bracketFill = getBracketFill(taxableIncome, brackets);
+
+    results.push({
+      year, age, spouseAge: sAge, tradBal, rothBal, taxBal, hsaBal,
+      salary, pension, ssIncome, taxableSS, rmd, conversionAmount,
+      agi, taxableIncome, federalTax, stateTax, irmaaSurcharge: irmaa.annual,
+      irmaaTier: irmaa.tier, totalTax, cumulativeTax, marginalRate,
+      bracketFill,
+      totalEstate: tradBal + rothBal + taxBal + hsaBal,
+      isConversionYear: conversionAmount > 0,
+      isRMDYear: rmd > 0
+    });
+  }
+
+  return results;
+}
+
+/* ============================================================
+   MODULE 7: OPTIMIZER
+   Determines optimal conversion amount per year and finds
+   the breakeven age.
+   ============================================================ */
+
+function findBreakevenAge(scenarioA, scenarioB) {
+  for (let i = 0; i < Math.min(scenarioA.length, scenarioB.length); i++) {
+    if (scenarioB[i].cumulativeTax < scenarioA[i].cumulativeTax) {
+      return scenarioA[i].age;
+    }
+  }
+  return null;
+}
+
+/* ============================================================
+   MODULE 8: UI COMPONENTS
+   React components for input form, results, tables, and charts.
+   ============================================================ */
+
+/* ---- Utility formatters ---- */
+const fmt = (n) => {
+  if (n === undefined || n === null || isNaN(n)) return '$0';
+  const abs = Math.abs(Math.round(n));
+  const formatted = abs.toLocaleString('en-US');
+  return n < 0 ? `-$${formatted}` : `$${formatted}`;
+};
+const fmtPct = (n) => `${(n * 100).toFixed(0)}%`;
+const fmtRate = (n) => `${n.toFixed(1)}%`;
+
+/* ---- Collapsible Section ---- */
+function Collapsible({ title, children, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return React.createElement('div', null,
+    React.createElement('div', {
+      className: 'collapsible-header',
+      onClick: () => setOpen(!open)
+    },
+      React.createElement('h3', null, title),
+      React.createElement('span', { className: `arrow ${open ? 'open' : ''}` }, '\u25B6')
+    ),
+    open && React.createElement('div', { className: 'collapsible-content' }, children)
+  );
+}
+
+/* ---- Input Form Component ---- */
+function InputForm({ inputs, setInputs, onCalculate }) {
+  const update = (field, value) => {
+    setInputs(prev => ({ ...prev, [field]: value }));
+  };
+  const updateNested = (parent, field, value) => {
+    setInputs(prev => ({
+      ...prev,
+      [parent]: { ...prev[parent], [field]: value }
+    }));
+  };
+
+  const isMFJ = inputs.filingStatus === 'marriedFilingJointly';
+
+  const field = (label, fieldName, opts = {}) => {
+    const { type = 'number', min, max, step, suffix, options, nested, parentField } = opts;
+    const val = nested ? (inputs[parentField] || {})[fieldName] : inputs[fieldName];
+    const onChange = nested
+      ? (e) => updateNested(parentField, fieldName, type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value)
+      : (e) => update(fieldName, type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value);
+
+    if (type === 'select') {
+      return React.createElement('div', { className: 'form-group', key: fieldName },
+        React.createElement('label', null, label),
+        React.createElement('select', { value: val || '', onChange },
+          (options || []).map(o =>
+            React.createElement('option', { key: o.value, value: o.value }, o.label)
+          )
+        )
+      );
+    }
+
+    return React.createElement('div', { className: 'form-group', key: fieldName },
+      React.createElement('label', null, label + (suffix ? ` (${suffix})` : '')),
+      React.createElement('input', {
+        type: 'number',
+        value: val === undefined || val === null ? '' : val,
+        onChange,
+        min, max, step: step || (suffix === '%' ? '0.1' : '1')
+      })
+    );
+  };
+
+  return React.createElement('div', { className: 'card' },
+    React.createElement('div', { className: 'card-header' },
+      React.createElement('h2', null, 'Input Parameters'),
+      React.createElement('button', {
+        className: 'btn btn-primary',
+        onClick: onCalculate
+      }, 'Calculate')
+    ),
+
+    React.createElement('div', { className: 'form-section-title' }, 'Personal Info'),
+    React.createElement('div', { className: 'form-grid' },
+      field('Current Age', 'currentAge', { min: 20, max: 100 }),
+      field('Retirement Age', 'retirementAge', { min: 20, max: 100 }),
+      field('Life Expectancy', 'lifeExpectancy', { min: 50, max: 120 }),
+      field('Filing Status', 'filingStatus', {
+        type: 'select',
+        options: [
+          { value: 'marriedFilingJointly', label: 'Married Filing Jointly' },
+          { value: 'single', label: 'Single' },
+          { value: 'marriedFilingSeparately', label: 'Married Filing Separately' }
+        ]
+      }),
+      field('State Tax Rate', 'stateTaxRate', { suffix: '%', min: 0, max: 15, step: 0.1 })
+    ),
+
+    isMFJ && React.createElement(React.Fragment, null,
+      React.createElement('div', { className: 'form-section-title' }, 'Spouse Info'),
+      React.createElement('div', { className: 'form-grid' },
+        field('Spouse Current Age', 'spouseAge', { min: 20, max: 100 }),
+        field('Spouse Life Expectancy', 'spouseLifeExpectancy', { min: 50, max: 120 })
+      )
+    ),
+
+    React.createElement('div', { className: 'form-section-title' }, 'Account Balances'),
+    React.createElement('div', { className: 'form-grid' },
+      field('Traditional IRA/401k', 'traditionalBalance', { min: 0, suffix: '$' }),
+      field('Roth IRA/401k', 'rothBalance', { min: 0, suffix: '$' }),
+      field('Taxable Brokerage', 'taxableBalance', { min: 0, suffix: '$' }),
+      field('HSA Balance', 'hsaBalance', { min: 0, suffix: '$' })
+    ),
+
+    React.createElement('div', { className: 'form-section-title' }, 'Annual Contributions (Pre-Retirement)'),
+    React.createElement('div', { className: 'form-grid' },
+      field('To Traditional', 'traditional', { min: 0, nested: true, parentField: 'annualContributions' }),
+      field('To Roth', 'roth', { min: 0, nested: true, parentField: 'annualContributions' }),
+      field('To Taxable', 'taxable', { min: 0, nested: true, parentField: 'annualContributions' }),
+      field('To HSA', 'hsa', { min: 0, nested: true, parentField: 'annualContributions' })
+    ),
+
+    React.createElement('div', { className: 'form-section-title' }, 'Income'),
+    React.createElement('div', { className: 'form-grid' },
+      field('Current Gross Income', 'grossIncome', { min: 0 }),
+      field('Social Security Benefit (at FRA)', 'ssAnnualBenefit', { min: 0 }),
+      field('SS Start Age', 'ssStartAge', { min: 62, max: 70 }),
+      isMFJ && field('Spouse SS Benefit', 'spouseSsBenefit', { min: 0 }),
+      isMFJ && field('Spouse SS Start Age', 'spouseSsStartAge', { min: 62, max: 70 }),
+      field('Pension / Other Income', 'pensionIncome', { min: 0 }),
+      field('Annual Retirement Spending', 'annualSpending', { min: 0 })
+    ),
+
+    React.createElement('div', { className: 'form-section-title' }, 'Assumptions'),
+    React.createElement('div', { className: 'form-grid' },
+      field('Pre-Tax Growth Rate', 'preRetirementGrowth', { suffix: '%', min: 0, max: 20 }),
+      field('Roth Growth Rate', 'rothGrowth', { suffix: '%', min: 0, max: 20 }),
+      field('Taxable Growth Rate', 'taxableGrowth', { suffix: '%', min: 0, max: 20 }),
+      field('Inflation Rate', 'inflationRate', { suffix: '%', min: 0, max: 10 }),
+      field('Bracket Inflation Adj.', 'bracketInflation', { suffix: '%', min: 0, max: 10 })
+    ),
+
+    React.createElement('div', { className: 'form-section-title' }, 'Conversion Strategy'),
+    React.createElement('div', { className: 'form-grid' },
+      field('Target Bracket', 'targetBracket', {
+        type: 'select',
+        options: [
+          { value: '0.10', label: '10% Bracket' },
+          { value: '0.12', label: '12% Bracket' },
+          { value: '0.22', label: '22% Bracket' },
+          { value: '0.24', label: '24% Bracket (Default)' },
+          { value: '0.32', label: '32% Bracket' },
+          { value: '0.35', label: '35% Bracket' }
+        ]
+      }),
+      field('Custom Annual Conversion', 'customConversion', { min: 0 }),
+      field('Tax Payment Source', 'taxPaymentSource', {
+        type: 'select',
+        options: [
+          { value: 'taxable', label: 'Pay from Taxable Account' },
+          { value: 'conversion', label: 'Pay from Converted Amount' }
+        ]
+      })
+    ),
+
+    React.createElement('div', { style: { textAlign: 'right', marginTop: 20 } },
+      React.createElement('button', {
+        className: 'btn btn-primary',
+        onClick: onCalculate,
+        style: { padding: '12px 48px', fontSize: '1rem' }
+      }, 'Calculate Optimal Strategy')
+    )
+  );
+}
+
+/* ---- Summary Dashboard ---- */
+function SummaryDashboard({ scenarioA, scenarioB, scenarioC, breakevenAge }) {
+  const lastA = scenarioA[scenarioA.length - 1];
+  const lastB = scenarioB[scenarioB.length - 1];
+  const lastC = scenarioC ? scenarioC[scenarioC.length - 1] : null;
+
+  const taxSavings = lastA.cumulativeTax - lastB.cumulativeTax;
+  const estateDiff = lastB.totalEstate - lastA.totalEstate;
+
+  const irmaaYears = scenarioB.filter(y => y.irmaaSurcharge > 0).length;
+
+  return React.createElement('div', null,
+    React.createElement('div', { className: 'summary-grid' },
+      React.createElement('div', { className: `summary-card ${taxSavings > 0 ? 'positive' : 'negative'}` },
+        React.createElement('div', { className: 'label' }, 'Lifetime Tax Savings'),
+        React.createElement('div', { className: `value ${taxSavings > 0 ? 'green' : 'red'}` }, fmt(taxSavings)),
+        React.createElement('div', { className: 'sub' },
+          `No Conversion: ${fmt(lastA.cumulativeTax)} vs Optimized: ${fmt(lastB.cumulativeTax)}`)
+      ),
+      React.createElement('div', { className: `summary-card ${estateDiff > 0 ? 'positive' : 'neutral'}` },
+        React.createElement('div', { className: 'label' }, 'Estate Value Advantage'),
+        React.createElement('div', { className: `value ${estateDiff > 0 ? 'green' : 'orange'}` }, fmt(estateDiff)),
+        React.createElement('div', { className: 'sub' },
+          `No Conversion: ${fmt(lastA.totalEstate)} vs Optimized: ${fmt(lastB.totalEstate)}`)
+      ),
+      React.createElement('div', { className: 'summary-card neutral' },
+        React.createElement('div', { className: 'label' }, 'Breakeven Age'),
+        React.createElement('div', { className: 'value blue' }, breakevenAge ? `Age ${breakevenAge}` : 'N/A'),
+        React.createElement('div', { className: 'sub' },
+          breakevenAge ? 'When Roth strategy pulls ahead' : 'Roth strategy ahead from start or never')
+      ),
+      irmaaYears > 0 && React.createElement('div', { className: 'summary-card warning' },
+        React.createElement('div', { className: 'label' }, 'IRMAA Warning'),
+        React.createElement('div', { className: 'value red' }, `${irmaaYears} years`),
+        React.createElement('div', { className: 'sub' }, 'Conversion triggers Medicare surcharges')
+      ),
+      lastC && React.createElement('div', { className: 'summary-card neutral' },
+        React.createElement('div', { className: 'label' }, 'Custom Strategy Taxes'),
+        React.createElement('div', { className: 'value blue' }, fmt(lastC.cumulativeTax)),
+        React.createElement('div', { className: 'sub' }, `Estate: ${fmt(lastC.totalEstate)}`)
+      )
+    )
+  );
+}
+
+/* ---- Year-by-Year Table ---- */
+function ProjectionTable({ data, label, showReal, inflationRate }) {
+  const deflate = (val, yearOffset) => showReal ? val / Math.pow(1 + inflationRate / 100, yearOffset) : val;
+
+  return React.createElement('div', { className: 'table-container' },
+    React.createElement('table', { className: 'data-table' },
+      React.createElement('thead', null,
+        React.createElement('tr', null,
+          ['Year', 'Age', 'Sp.Age', 'Traditional', 'Roth', 'Taxable', 'Conversion', 'RMD',
+           'Taxable Inc.', 'Fed Tax', 'State Tax', 'IRMAA', 'Total Tax', 'Cum. Tax', 'Bracket']
+          .map(h => React.createElement('th', { key: h }, h))
+        )
+      ),
+      React.createElement('tbody', null,
+        data.map((row, i) => {
+          const rowClass = row.isConversionYear ? 'conversion-row' :
+                          row.isRMDYear ? 'rmd-row' : '';
+          const irmaaClass = row.irmaaSurcharge > 0 ? ' irmaa-flag' : '';
+          return React.createElement('tr', { key: row.year, className: rowClass + irmaaClass },
+            React.createElement('td', null, row.year),
+            React.createElement('td', null, row.age),
+            React.createElement('td', null, row.spouseAge || '-'),
+            React.createElement('td', null, fmt(deflate(row.tradBal, i))),
+            React.createElement('td', null, fmt(deflate(row.rothBal, i))),
+            React.createElement('td', null, fmt(deflate(row.taxBal, i))),
+            React.createElement('td', null, row.conversionAmount > 0 ? fmt(deflate(row.conversionAmount, i)) : '-'),
+            React.createElement('td', null, row.rmd > 0 ? fmt(deflate(row.rmd, i)) : '-'),
+            React.createElement('td', null, fmt(deflate(row.taxableIncome, i))),
+            React.createElement('td', null, fmt(deflate(row.federalTax, i))),
+            React.createElement('td', null, fmt(deflate(row.stateTax, i))),
+            React.createElement('td', null, row.irmaaSurcharge > 0
+              ? React.createElement('span', { className: 'irmaa-badge' }, fmt(deflate(row.irmaaSurcharge, i)))
+              : '-'),
+            React.createElement('td', null, fmt(deflate(row.totalTax, i))),
+            React.createElement('td', { style: { fontWeight: 600 } }, fmt(deflate(row.cumulativeTax, i))),
+            React.createElement('td', null, fmtPct(row.marginalRate))
+          );
+        })
+      )
+    )
+  );
+}
+
+/* ---- Charts ---- */
+function Charts({ scenarioA, scenarioB, scenarioC }) {
+  const cumulativeData = scenarioA.map((a, i) => ({
+    age: a.age,
+    noConversion: Math.round(a.cumulativeTax),
+    optimized: Math.round(scenarioB[i]?.cumulativeTax || 0),
+    ...(scenarioC ? { custom: Math.round(scenarioC[i]?.cumulativeTax || 0) } : {})
+  }));
+
+  const balanceDataB = scenarioB.map(row => ({
+    age: row.age,
+    Traditional: Math.round(row.tradBal),
+    Roth: Math.round(row.rothBal),
+    Taxable: Math.round(row.taxBal),
+    HSA: Math.round(row.hsaBal)
+  }));
+
+  const annualTaxData = scenarioA.map((a, i) => ({
+    age: a.age,
+    noConversion: Math.round(a.totalTax),
+    optimized: Math.round(scenarioB[i]?.totalTax || 0),
+    ...(scenarioC ? { custom: Math.round(scenarioC[i]?.totalTax || 0) } : {})
+  }));
+
+  const bracketData = scenarioB.map(row => ({
+    age: row.age,
+    rate10: 0, rate12: 0, rate22: 0, rate24: 0, rate32: 0, rate35: 0, rate37: 0
+  }));
+  scenarioB.forEach((row, i) => {
+    (row.bracketFill || []).forEach(bf => {
+      const key = `rate${Math.round(bf.rate * 100)}`;
+      if (bracketData[i][key] !== undefined) {
+        bracketData[i][key] = Math.round(bf.filled);
+      }
+    });
+  });
+
+  const chartMargin = { top: 5, right: 20, bottom: 5, left: 20 };
+  const tooltipFormatter = (value) => fmt(value);
+
+  return React.createElement('div', { className: 'charts-grid' },
+    /* Chart 1: Cumulative Tax Comparison */
+    React.createElement('div', { className: 'card' },
+      React.createElement('h3', null, 'Cumulative Tax Comparison'),
+      React.createElement('div', { className: 'chart-container' },
+        React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+          React.createElement(LineChart, { data: cumulativeData, margin: chartMargin },
+            React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#e2e8f0' }),
+            React.createElement(XAxis, { dataKey: 'age', tick: { fontSize: 11 } }),
+            React.createElement(YAxis, { tickFormatter: v => `$${(v/1000).toFixed(0)}k`, tick: { fontSize: 11 } }),
+            React.createElement(Tooltip, { formatter: tooltipFormatter }),
+            React.createElement(Legend, null),
+            React.createElement(Line, { type: 'monotone', dataKey: 'noConversion', stroke: '#ea580c', strokeWidth: 2, name: 'No Conversion', dot: false }),
+            React.createElement(Line, { type: 'monotone', dataKey: 'optimized', stroke: '#0d9488', strokeWidth: 2, name: 'Optimized', dot: false }),
+            scenarioC && React.createElement(Line, { type: 'monotone', dataKey: 'custom', stroke: '#7c3aed', strokeWidth: 2, name: 'Custom', dot: false })
+          )
+        )
+      )
+    ),
+
+    /* Chart 2: Account Balances (Optimized Scenario) */
+    React.createElement('div', { className: 'card' },
+      React.createElement('h3', null, 'Account Balances (Optimized Strategy)'),
+      React.createElement('div', { className: 'chart-container' },
+        React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+          React.createElement(AreaChart, { data: balanceDataB, margin: chartMargin },
+            React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#e2e8f0' }),
+            React.createElement(XAxis, { dataKey: 'age', tick: { fontSize: 11 } }),
+            React.createElement(YAxis, { tickFormatter: v => `$${(v/1000000).toFixed(1)}M`, tick: { fontSize: 11 } }),
+            React.createElement(Tooltip, { formatter: tooltipFormatter }),
+            React.createElement(Legend, null),
+            React.createElement(Area, { type: 'monotone', dataKey: 'Traditional', stackId: '1', fill: '#ea580c', stroke: '#ea580c', fillOpacity: 0.7 }),
+            React.createElement(Area, { type: 'monotone', dataKey: 'Roth', stackId: '1', fill: '#0d9488', stroke: '#0d9488', fillOpacity: 0.7 }),
+            React.createElement(Area, { type: 'monotone', dataKey: 'Taxable', stackId: '1', fill: '#2563eb', stroke: '#2563eb', fillOpacity: 0.7 }),
+            React.createElement(Area, { type: 'monotone', dataKey: 'HSA', stackId: '1', fill: '#7c3aed', stroke: '#7c3aed', fillOpacity: 0.7 })
+          )
+        )
+      )
+    ),
+
+    /* Chart 3: Annual Tax Burden */
+    React.createElement('div', { className: 'card' },
+      React.createElement('h3', null, 'Annual Tax Burden Comparison'),
+      React.createElement('div', { className: 'chart-container' },
+        React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+          React.createElement(BarChart, { data: annualTaxData, margin: chartMargin },
+            React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#e2e8f0' }),
+            React.createElement(XAxis, { dataKey: 'age', tick: { fontSize: 11 } }),
+            React.createElement(YAxis, { tickFormatter: v => `$${(v/1000).toFixed(0)}k`, tick: { fontSize: 11 } }),
+            React.createElement(Tooltip, { formatter: tooltipFormatter }),
+            React.createElement(Legend, null),
+            React.createElement(Bar, { dataKey: 'noConversion', fill: '#ea580c', name: 'No Conversion', opacity: 0.8 }),
+            React.createElement(Bar, { dataKey: 'optimized', fill: '#0d9488', name: 'Optimized', opacity: 0.8 }),
+            scenarioC && React.createElement(Bar, { dataKey: 'custom', fill: '#7c3aed', name: 'Custom', opacity: 0.8 })
+          )
+        )
+      )
+    ),
+
+    /* Chart 4: Marginal Bracket by Year (Optimized) */
+    React.createElement('div', { className: 'card' },
+      React.createElement('h3', null, 'Income by Tax Bracket (Optimized Strategy)'),
+      React.createElement('div', { className: 'chart-container' },
+        React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+          React.createElement(AreaChart, { data: bracketData, margin: chartMargin },
+            React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#e2e8f0' }),
+            React.createElement(XAxis, { dataKey: 'age', tick: { fontSize: 11 } }),
+            React.createElement(YAxis, { tickFormatter: v => `$${(v/1000).toFixed(0)}k`, tick: { fontSize: 11 } }),
+            React.createElement(Tooltip, { formatter: tooltipFormatter }),
+            React.createElement(Legend, null),
+            React.createElement(Area, { type: 'monotone', dataKey: 'rate10', stackId: '1', fill: '#059669', stroke: '#059669', name: '10%', fillOpacity: 0.8 }),
+            React.createElement(Area, { type: 'monotone', dataKey: 'rate12', stackId: '1', fill: '#0d9488', stroke: '#0d9488', name: '12%', fillOpacity: 0.8 }),
+            React.createElement(Area, { type: 'monotone', dataKey: 'rate22', stackId: '1', fill: '#2563eb', stroke: '#2563eb', name: '22%', fillOpacity: 0.8 }),
+            React.createElement(Area, { type: 'monotone', dataKey: 'rate24', stackId: '1', fill: '#7c3aed', stroke: '#7c3aed', name: '24%', fillOpacity: 0.8 }),
+            React.createElement(Area, { type: 'monotone', dataKey: 'rate32', stackId: '1', fill: '#db2777', stroke: '#db2777', name: '32%', fillOpacity: 0.8 }),
+            React.createElement(Area, { type: 'monotone', dataKey: 'rate35', stackId: '1', fill: '#ea580c', stroke: '#ea580c', name: '35%', fillOpacity: 0.8 }),
+            React.createElement(Area, { type: 'monotone', dataKey: 'rate37', stackId: '1', fill: '#dc2626', stroke: '#dc2626', name: '37%', fillOpacity: 0.8 })
+          )
+        )
+      )
+    )
+  );
+}
+
+/* ---- Key Assumptions Section ---- */
+function KeyAssumptions() {
+  return React.createElement(Collapsible, { title: 'Key Assumptions & Data Sources' },
+    React.createElement('ul', { className: 'assumptions-list' },
+      React.createElement('li', null, 'Tax brackets: 2025 federal brackets (IRS Rev. Proc. 2024-40 + OBBB), inflation-adjusted for future years'),
+      React.createElement('li', null, 'Standard deduction: 2025 amounts including One Big Beautiful Bill Act 5% increase'),
+      React.createElement('li', null, 'Additional standard deduction for age 65+: $2,000 (single), $1,600 (married, per spouse)'),
+      React.createElement('li', null, 'RMD start age: 73 (SECURE 2.0 Act), moving to 75 starting 2033'),
+      React.createElement('li', null, 'RMD divisors: IRS Uniform Lifetime Table III (2022 revision). Joint Life Table II used when spouse is sole beneficiary and 10+ years younger'),
+      React.createElement('li', null, 'Social Security taxation: provisional income thresholds ($25K/$34K single, $32K/$44K MFJ) for 0%/50%/85% taxable tiers'),
+      React.createElement('li', null, 'IRMAA: 2025 Medicare Part B & D surcharge thresholds (based on MAGI from 2 years prior)'),
+      React.createElement('li', null, 'Net Investment Income Tax (NIIT): 3.8% on net investment income above $200K (single) / $250K (MFJ) — NOT inflation-adjusted'),
+      React.createElement('li', null, 'Capital gains: 0%/15%/20% brackets for 2025, inflation-adjusted'),
+      React.createElement('li', null, 'Social Security COLA: modeled at ~80% of CPI inflation'),
+      React.createElement('li', null, 'All brackets and thresholds inflation-adjusted from 2025 base year using the user-specified bracket inflation rate'),
+      React.createElement('li', null, 'State tax modeled as flat effective rate on AGI (simplification)'),
+      React.createElement('li', null, 'Retirement spending withdrawn from: taxable account first, then Roth, then HSA'),
+      React.createElement('li', null, 'Does not model: ACA subsidy cliffs, state-specific deductions, AMT, estate/inheritance taxes, or required beginning date nuances')
+    )
+  );
+}
+
+/* ---- Main App Component ---- */
+function App() {
+  const [inputs, setInputs] = useState({
+    currentAge: 55,
+    retirementAge: 55,
+    lifeExpectancy: 90,
+    filingStatus: 'marriedFilingJointly',
+    stateTaxRate: 5,
+    spouseAge: 53,
+    spouseLifeExpectancy: 92,
+    traditionalBalance: 1000000,
+    rothBalance: 50000,
+    taxableBalance: 200000,
+    hsaBalance: 0,
+    annualContributions: { traditional: 0, roth: 0, taxable: 0, hsa: 0 },
+    grossIncome: 0,
+    ssAnnualBenefit: 40000,
+    ssStartAge: 67,
+    spouseSsBenefit: 40000,
+    spouseSsStartAge: 67,
+    pensionIncome: 0,
+    annualSpending: 80000,
+    preRetirementGrowth: 6,
+    rothGrowth: 6,
+    taxableGrowth: 6,
+    inflationRate: 2.5,
+    bracketInflation: 2.5,
+    targetBracket: '0.24',
+    customConversion: 0,
+    taxPaymentSource: 'taxable'
+  });
+
+  const [results, setResults] = useState(null);
+  const [activeTab, setActiveTab] = useState('summary');
+  const [showReal, setShowReal] = useState(false);
+  const [calculating, setCalculating] = useState(false);
+
+  const onCalculate = useCallback(() => {
+    setCalculating(true);
+    /* Use setTimeout to allow UI to show loading state */
+    setTimeout(() => {
+      const targetRate = parseFloat(inputs.targetBracket);
+      const scenarioA = runProjection(inputs, 'noConversion', 0, targetRate, inputs.taxPaymentSource);
+      const scenarioB = runProjection(inputs, 'optimized', 0, targetRate, inputs.taxPaymentSource);
+      const scenarioC = inputs.customConversion > 0
+        ? runProjection(inputs, 'custom', inputs.customConversion, targetRate, inputs.taxPaymentSource)
+        : null;
+      const breakevenAge = findBreakevenAge(scenarioA, scenarioB);
+
+      setResults({ scenarioA, scenarioB, scenarioC, breakevenAge });
+      setCalculating(false);
+      setActiveTab('summary');
+    }, 50);
+  }, [inputs]);
+
+  return React.createElement('div', { className: 'app-container' },
+    React.createElement('div', { className: 'app-header' },
+      React.createElement('div', null,
+        React.createElement('h1', null, 'Roth Conversion Ladder Optimizer'),
+        React.createElement('div', { className: 'app-header-subtitle' },
+          'Compare Roth conversion strategies to minimize lifetime tax liability')
+      ),
+      results && React.createElement('div', { className: 'toggle-group' },
+        React.createElement('span', null, 'Nominal'),
+        React.createElement('div', {
+          className: `toggle-switch ${showReal ? 'active' : ''}`,
+          onClick: () => setShowReal(!showReal)
+        }),
+        React.createElement('span', null, 'Real (inflation-adjusted)')
+      )
+    ),
+
+    React.createElement(InputForm, { inputs, setInputs, onCalculate }),
+
+    calculating && React.createElement('div', { className: 'card loading' },
+      React.createElement('div', { className: 'spinner' }),
+      React.createElement('div', null, 'Calculating optimal strategy...')
+    ),
+
+    results && !calculating && React.createElement(React.Fragment, null,
+      React.createElement('div', { className: 'tabs' },
+        [
+          { key: 'summary', label: 'Summary' },
+          { key: 'charts', label: 'Charts' },
+          { key: 'tableA', label: 'No Conversion Table' },
+          { key: 'tableB', label: 'Optimized Table' },
+          inputs.customConversion > 0 && { key: 'tableC', label: 'Custom Table' },
+          { key: 'assumptions', label: 'Assumptions' }
+        ].filter(Boolean).map(t =>
+          React.createElement('div', {
+            key: t.key,
+            className: `tab ${activeTab === t.key ? 'active' : ''}`,
+            onClick: () => setActiveTab(t.key)
+          }, t.label)
+        )
+      ),
+
+      activeTab === 'summary' && React.createElement(React.Fragment, null,
+        React.createElement(SummaryDashboard, {
+          scenarioA: results.scenarioA,
+          scenarioB: results.scenarioB,
+          scenarioC: results.scenarioC,
+          breakevenAge: results.breakevenAge
+        }),
+        React.createElement(Charts, {
+          scenarioA: results.scenarioA,
+          scenarioB: results.scenarioB,
+          scenarioC: results.scenarioC
+        })
+      ),
+
+      activeTab === 'charts' && React.createElement(Charts, {
+        scenarioA: results.scenarioA,
+        scenarioB: results.scenarioB,
+        scenarioC: results.scenarioC
+      }),
+
+      activeTab === 'tableA' && React.createElement('div', { className: 'card' },
+        React.createElement('h2', null, 'Scenario A: No Roth Conversions'),
+        React.createElement(ProjectionTable, {
+          data: results.scenarioA,
+          label: 'No Conversion',
+          showReal, inflationRate: inputs.inflationRate
+        })
+      ),
+
+      activeTab === 'tableB' && React.createElement('div', { className: 'card' },
+        React.createElement('h2', null, 'Scenario B: Optimized Roth Conversions'),
+        React.createElement(ProjectionTable, {
+          data: results.scenarioB,
+          label: 'Optimized',
+          showReal, inflationRate: inputs.inflationRate
+        })
+      ),
+
+      activeTab === 'tableC' && results.scenarioC && React.createElement('div', { className: 'card' },
+        React.createElement('h2', null, 'Scenario C: Custom Fixed Conversions'),
+        React.createElement(ProjectionTable, {
+          data: results.scenarioC,
+          label: 'Custom',
+          showReal, inflationRate: inputs.inflationRate
+        })
+      ),
+
+      activeTab === 'assumptions' && React.createElement('div', { className: 'card' },
+        React.createElement(KeyAssumptions, null)
+      )
+    )
+  );
+}
+
+/* Mount the application */
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+</script>
+</body>
+</html>
