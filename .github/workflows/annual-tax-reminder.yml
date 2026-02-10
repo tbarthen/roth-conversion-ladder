@@ -1,12 +1,13 @@
 name: Annual tax rate update reminder
 
-# Runs every January 15 and opens a GitHub issue reminding you to
+# Runs every January 2 and opens a GitHub issue reminding you to
 # update state tax rates in the Roth Conversion Ladder Optimizer.
 # This is YOUR repo's automated reminder — not spam.
+# Jan 2 = earliest practical date after new rates take effect Jan 1.
 
 on:
   schedule:
-    - cron: '0 12 15 1 *'  # Jan 15 at noon UTC, every year
+    - cron: '0 12 2 1 *'  # Jan 2 at noon UTC, every year
   workflow_dispatch:         # Also allow manual trigger for testing
 
 permissions:
@@ -60,6 +61,10 @@ This is an automated reminder from your own repository — not spam.
 ## Why this matters
 
 The app currently shows rates for the **previous tax year**. Some states change rates annually. If you don't update, the calculator will use slightly stale state tax numbers (the federal brackets are inflation-adjusted automatically, but state rates are not).
+
+## Timing note
+
+This reminder fires on **January 2** so you can start planning early. If Tax Foundation hasn't published their ${year} roundup yet, check back in a week or two — they typically publish by mid-January.
 
 ## When you're done
 
