@@ -650,25 +650,42 @@ function calculateIRMAA(magi, filingStatus, year, inflationRate, numPeople = 1) 
  * @returns {Array} Year-by-year projection data
  */
 function runProjection(inputs, scenario, customConversion = 0, targetBracketRate = 0.24, taxPaymentSource = 'taxable') {
-  const {
-    currentAge, retirementAge, lifeExpectancy, filingStatus,
-    stateTaxRate, spouseAge, spouseLifeExpectancy,
-    traditionalBalance, rothBalance, taxableBalance, hsaBalance,
-    annualContributions, grossIncome, ssAnnualBenefit, ssStartAge,
-    spouseSsBenefit, spouseSsStartAge, pensionIncome, annualSpending,
-    preRetirementGrowth, rothGrowth, taxableGrowth, inflationRate,
-    bracketInflation
-  } = inputs;
+  /* Coerce all numeric inputs — handles empty-string defaults gracefully */
+  const n = (v) => Number(v) || 0;
+  const currentAge = n(inputs.currentAge);
+  const retirementAge = n(inputs.retirementAge) || currentAge;
+  const lifeExpectancy = n(inputs.lifeExpectancy) || 90;
+  const filingStatus = inputs.filingStatus;
+  const stateTaxRate = n(inputs.stateTaxRate);
+  const spouseAge = n(inputs.spouseAge);
+  const spouseLifeExpectancy = n(inputs.spouseLifeExpectancy) || 90;
+  const traditionalBalance = n(inputs.traditionalBalance);
+  const rothBalance = n(inputs.rothBalance);
+  const taxableBalance = n(inputs.taxableBalance);
+  const hsaBalance = n(inputs.hsaBalance);
+  const annualContributions = inputs.annualContributions || { traditional: 0, roth: 0, taxable: 0, hsa: 0 };
+  const grossIncome = n(inputs.grossIncome);
+  const ssAnnualBenefit = n(inputs.ssAnnualBenefit);
+  const ssStartAge = n(inputs.ssStartAge) || 67;
+  const spouseSsBenefit = n(inputs.spouseSsBenefit);
+  const spouseSsStartAge = n(inputs.spouseSsStartAge) || 67;
+  const pensionIncome = n(inputs.pensionIncome);
+  const annualSpending = n(inputs.annualSpending);
+  const preRetirementGrowth = n(inputs.preRetirementGrowth);
+  const rothGrowth = n(inputs.rothGrowth);
+  const taxableGrowth = n(inputs.taxableGrowth);
+  const inflationRate = n(inputs.inflationRate);
+  const bracketInflation = n(inputs.bracketInflation);
 
   const currentYear = 2025;
   const isRetired = retirementAge <= currentAge;
   const isMFJ = filingStatus === 'marriedFilingJointly';
   const maxAge = Math.max(lifeExpectancy, isMFJ && spouseLifeExpectancy ? spouseLifeExpectancy + (currentAge - (spouseAge || currentAge)) : lifeExpectancy);
 
-  let tradBal = traditionalBalance || 0;
-  let rothBal = rothBalance || 0;
-  let taxBal = taxableBalance || 0;
-  let hsaBal = hsaBalance || 0;
+  let tradBal = traditionalBalance;
+  let rothBal = rothBalance;
+  let taxBal = taxableBalance;
+  let hsaBal = hsaBalance;
   let cumulativeTax = 0;
   const results = [];
   const magiHistory = []; /* Track MAGI for IRMAA 2-year lookback */
@@ -1300,26 +1317,26 @@ function KeyAssumptions() {
 /* ---- Main App Component ---- */
 function App() {
   const [inputs, setInputs] = useState({
-    currentAge: 55,
-    retirementAge: 55,
+    currentAge: '',
+    retirementAge: '',
     lifeExpectancy: 90,
     filingStatus: 'marriedFilingJointly',
     stateAbbr: '--',
     stateTaxRate: 0,
-    spouseAge: 53,
-    spouseLifeExpectancy: 92,
-    traditionalBalance: 1000000,
-    rothBalance: 50000,
-    taxableBalance: 200000,
+    spouseAge: '',
+    spouseLifeExpectancy: 90,
+    traditionalBalance: '',
+    rothBalance: '',
+    taxableBalance: '',
     hsaBalance: 0,
     annualContributions: { traditional: 0, roth: 0, taxable: 0, hsa: 0 },
     grossIncome: 0,
-    ssAnnualBenefit: 40000,
+    ssAnnualBenefit: '',
     ssStartAge: 67,
-    spouseSsBenefit: 40000,
+    spouseSsBenefit: '',
     spouseSsStartAge: 67,
     pensionIncome: 0,
-    annualSpending: 80000,
+    annualSpending: '',
     preRetirementGrowth: 6,
     rothGrowth: 6,
     taxableGrowth: 6,
@@ -1355,6 +1372,10 @@ function App() {
   }, []);
 
   const onCalculate = useCallback(() => {
+    if (!inputs.currentAge || !inputs.annualSpending) {
+      alert('Please fill in at least your current age and annual spending before calculating.');
+      return;
+    }
     setCalculating(true);
     /* Use setTimeout to allow UI to show loading state */
     setTimeout(() => {
