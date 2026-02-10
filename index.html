@@ -51,22 +51,12 @@ h1 { font-size: 1.75rem; font-weight: 700; color: var(--accent-teal-dark); }
 h2 { font-size: 1.25rem; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; }
 h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; }
 
-/* Header */
-.app-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 24px; background: var(--bg-card); border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md); margin-bottom: 24px;
-}
-.app-header-subtitle { color: var(--text-muted); font-size: 0.875rem; }
+/* (app-header merged into input card) */
 
 /* Cards */
 .card {
   background: var(--bg-card); border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md); padding: 24px; margin-bottom: 20px;
-}
-.card-header {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border);
 }
 
 /* Form styles */
@@ -211,7 +201,6 @@ h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bot
 @media (max-width: 768px) {
   .form-grid { grid-template-columns: 1fr 1fr; }
   .summary-grid { grid-template-columns: 1fr; }
-  .app-header { flex-direction: column; gap: 8px; }
 }
 @media (max-width: 480px) {
   .form-grid { grid-template-columns: 1fr; }
@@ -1035,12 +1024,11 @@ function InputForm({ inputs, setInputs, onCalculate }) {
   };
 
   return React.createElement('div', { className: 'card' },
-    React.createElement('div', { className: 'card-header' },
-      React.createElement('h2', null, 'Input Parameters'),
-      React.createElement('button', {
-        className: 'btn btn-primary',
-        onClick: onCalculate
-      }, 'Calculate')
+    /* App title inside the card */
+    React.createElement('div', { style: { marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid var(--border)' } },
+      React.createElement('h1', null, 'Roth Conversion Ladder Optimizer'),
+      React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: '0.875rem' } },
+        'Compare Roth conversion strategies to minimize lifetime tax liability')
     ),
 
     /* Sample profile selector */
@@ -1522,22 +1510,6 @@ function App() {
   }, [inputs]);
 
   return React.createElement('div', { className: 'app-container' },
-    React.createElement('div', { className: 'app-header' },
-      React.createElement('div', null,
-        React.createElement('h1', null, 'Roth Conversion Ladder Optimizer'),
-        React.createElement('div', { className: 'app-header-subtitle' },
-          'Compare Roth conversion strategies to minimize lifetime tax liability')
-      ),
-      results && React.createElement('div', { className: 'toggle-group' },
-        React.createElement('span', null, 'Nominal'),
-        React.createElement('div', {
-          className: `toggle-switch ${showReal ? 'active' : ''}`,
-          onClick: () => setShowReal(!showReal)
-        }),
-        React.createElement('span', null, 'Real (inflation-adjusted)')
-      )
-    ),
-
     React.createElement(InputForm, { inputs, setInputs, onCalculate }),
 
     calculating && React.createElement('div', { className: 'card loading' },
@@ -1546,6 +1518,16 @@ function App() {
     ),
 
     results && !calculating && React.createElement(React.Fragment, null,
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 } },
+        React.createElement('div', { className: 'toggle-group' },
+          React.createElement('span', null, 'Nominal'),
+          React.createElement('div', {
+            className: `toggle-switch ${showReal ? 'active' : ''}`,
+            onClick: () => setShowReal(!showReal)
+          }),
+          React.createElement('span', null, 'Real (inflation-adjusted)')
+        )
+      ),
       React.createElement('div', { className: 'tabs' },
         [
           { key: 'summary', label: 'Summary' },
