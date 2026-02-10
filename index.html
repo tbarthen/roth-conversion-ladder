@@ -943,7 +943,7 @@ function InputForm({ inputs, setInputs, onCalculate }) {
           { value: 'marriedFilingSeparately', label: 'Married Filing Separately' }
         ]
       }),
-      /* State selector with auto-populated tax rate */
+      /* State selector — sets tax rate automatically */
       React.createElement('div', { className: 'form-group', key: 'stateSelect' },
         React.createElement('label', null, 'State'),
         React.createElement('select', {
@@ -953,7 +953,7 @@ function InputForm({ inputs, setInputs, onCalculate }) {
             setInputs(prev => ({
               ...prev,
               stateAbbr: e.target.value,
-              stateTaxRate: selected ? selected.rate : prev.stateTaxRate
+              stateTaxRate: selected ? selected.rate : 0
             }));
           },
           style: { maxWidth: '100%' }
@@ -962,17 +962,6 @@ function InputForm({ inputs, setInputs, onCalculate }) {
             React.createElement('option', { key: s.abbr, value: s.abbr },
               s.rate > 0 ? `${s.name} (${s.rate}%)` : s.abbr === '--' ? s.name : `${s.name} (No tax)`)
           )
-        )
-      ),
-      field('State Tax Rate', 'stateTaxRate', { suffix: '%', min: 0, max: 15, step: 0.01 }),
-      React.createElement('div', {
-        className: 'form-group',
-        key: 'stateRateNote',
-        style: { fontSize: '0.75rem', color: 'var(--text-muted)', alignSelf: 'end', paddingBottom: 8 }
-      },
-        React.createElement('span', null,
-          `Rates: tax year ${RATES_TAX_YEAR} (updated ${RATES_LAST_UPDATED}). `,
-          'Top marginal rate shown \u2014 adjust to your effective rate if needed.'
         )
       )
     ),
