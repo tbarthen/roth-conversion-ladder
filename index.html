@@ -945,7 +945,7 @@ function InputForm({ inputs, setInputs, onCalculate }) {
       }),
       /* State selector — sets tax rate automatically */
       React.createElement('div', { className: 'form-group', key: 'stateSelect' },
-        React.createElement('label', null, 'State'),
+        React.createElement('label', null, `State (${RATES_TAX_YEAR} rates)`),
         React.createElement('select', {
           value: inputs.stateAbbr || '--',
           onChange: (e) => {
@@ -962,7 +962,10 @@ function InputForm({ inputs, setInputs, onCalculate }) {
             React.createElement('option', { key: s.abbr, value: s.abbr },
               s.rate > 0 ? `${s.name} (${s.rate}%)` : s.abbr === '--' ? s.name : `${s.name} (No tax)`)
           )
-        )
+        ),
+        React.createElement('small', {
+          style: { display: 'block', marginTop: 4, color: '#888', fontSize: '0.75rem' }
+        }, `Rates reflect ${RATES_TAX_YEAR} top marginal rates. New rates typically take effect each January and are updated here manually.`)
       )
     ),
 
@@ -1272,9 +1275,8 @@ function KeyAssumptions() {
       }
     },
       React.createElement('strong', null, 'Tax data may be outdated. '),
-      `State tax rates were last updated ${RATES_LAST_UPDATED} for tax year ${RATES_TAX_YEAR}. `,
-      'Federal brackets, IRMAA thresholds, and state rates should be reviewed annually. ',
-      'Ask Claude Code to update the rates, or edit data/rates.json and push.'
+      `State tax rates were last verified for tax year ${RATES_TAX_YEAR}. `,
+      'New rates typically take effect each January. The site owner needs to update and redeploy with the latest rates.'
     ),
     React.createElement('ul', { className: 'assumptions-list' },
       React.createElement('li', null, 'Tax brackets: 2025 federal brackets (IRS Rev. Proc. 2024-40 + OBBB), inflation-adjusted for future years'),
