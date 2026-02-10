@@ -1519,13 +1519,19 @@ function App() {
 
     results && !calculating && React.createElement(React.Fragment, null,
       React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 } },
-        React.createElement('div', { className: 'toggle-group' },
-          React.createElement('span', null, 'Nominal'),
-          React.createElement('div', {
-            className: `toggle-switch ${showReal ? 'active' : ''}`,
-            onClick: () => setShowReal(!showReal)
-          }),
-          React.createElement('span', null, 'Real (inflation-adjusted)')
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' } },
+          React.createElement('div', { className: 'toggle-group' },
+            React.createElement('span', null, 'Future dollars'),
+            React.createElement('div', {
+              className: `toggle-switch ${showReal ? 'active' : ''}`,
+              onClick: () => setShowReal(!showReal)
+            }),
+            React.createElement('span', null, "Today\u2019s dollars")
+          ),
+          React.createElement('span', { style: { fontSize: '0.75rem', color: 'var(--text-muted)' } },
+            showReal
+              ? "Values adjusted for inflation \u2014 what this money would be worth in today\u2019s purchasing power"
+              : 'Values shown as actual future amounts \u2014 not adjusted for inflation')
         )
       ),
       React.createElement('div', { className: 'tabs' },
