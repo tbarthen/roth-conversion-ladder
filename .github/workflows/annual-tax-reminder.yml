@@ -1,0 +1,67 @@
+name: Annual tax rate update reminder
+
+on:
+  schedule:
+    - cron: '0 12 2 1 *'  # Jan 2 at noon UTC, every year
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for existing open reminder
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'tax-data-update'
+            });
+            return issues.data.length > 0 ? 'skip' : 'create';
+          result-encoding: string
+
+      - name: Create reminder issue
+        if: steps.check.outputs.result == 'create'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const year = new Date().getFullYear();
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Update tax rates for ${year}`,
+              labels: ['tax-data-update'],
+              body: `## What is this?
+
+You built a **Roth Conversion Ladder Optimizer** app that uses state income tax rates. Those rates are hardcoded and need to be refreshed once a year when new rates take effect.
+
+This is an automated reminder from your own repository — not spam.
+
+## What to do
+
+**Easiest option — ask Claude Code:**
+> "Update the state tax rates for ${year}. Research the latest rates from Tax Foundation and update data/rates.json."
+
+**Manual option:**
+1. Check the latest rates at [Tax Foundation](https://taxfoundation.org/data/all/state/state-income-tax-rates/)
+2. Edit \`data/rates.json\` in this repo — update the \`year\`, \`updated\`, and any changed \`rate\` values
+3. Commit and push — the app fetches this file at runtime, so it picks up changes immediately
+
+## Why this matters
+
+The app currently shows rates for the **previous tax year**. Some states change rates annually. If you don't update, the calculator will use slightly stale state tax numbers (the federal brackets are inflation-adjusted automatically, but state rates are not).
+
+## Timing note
+
+This reminder fires on **January 2** so you can start planning early. If Tax Foundation hasn't published their ${year} roundup yet, check back in a week or two — they typically publish by mid-January.
+
+## When you're done
+
+Close this issue. A new one will open next January.`
+            });
