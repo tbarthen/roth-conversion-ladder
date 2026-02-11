@@ -58,11 +58,6 @@ h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bot
   background: var(--bg-card); border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md); padding: 24px; margin-bottom: 16px;
 }
-.card-title {
-  font-size: 0.85rem; font-weight: 600; color: var(--accent-teal-dark);
-  text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px;
-}
-
 /* Form styles */
 .form-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -214,7 +209,11 @@ h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bot
 }
 .collapsible-header .arrow { transition: transform 0.2s; font-size: 0.7rem; color: var(--text-muted); flex-shrink: 0; }
 .collapsible-header .arrow.open { transform: rotate(90deg); }
-.collapsible-header h3 { flex-shrink: 0; margin-bottom: 0; }
+.collapsible-header h3 {
+  flex-shrink: 0; margin-bottom: 0;
+  font-size: 0.85rem; font-weight: 600; color: var(--accent-teal-dark);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
 .collapsible-content { overflow: hidden; transition: max-height 0.3s; padding-top: 12px; }
 .assumptions-list { font-size: 0.8rem; color: var(--text-secondary); line-height: 1.8; }
 .assumptions-list li { margin-left: 20px; }
@@ -1097,25 +1096,72 @@ function InputForm({ inputs, setInputs, onCalculate }) {
 
   const isMFJ = inputs.filingStatus === 'marriedFilingJointly';
 
-  /* Summary lines for collapsible sections */
+  /* Compact currency for summary lines */
+  const fmtCompact = (v) => {
+    const n = Number(v) || 0;
+    if (n === 0) return null;
+    if (n >= 1000000) return `$${(n / 1000000).toFixed(1).replace(/\.0$/, '')}M`;
+    if (n >= 1000) return `$${(n / 1000).toFixed(0)}K`;
+    return `$${n.toLocaleString()}`;
+  };
+
+  const isRetired = inputs.retirementAge && inputs.currentAge && Number(inputs.retirementAge) <= Number(inputs.currentAge);
+
+  /* Personal Info summary */
+  const filingAbbr = { marriedFilingJointly: 'MFJ', single: 'Single', marriedFilingSeparately: 'MFS' };
+  const selectedState = STATE_TAX_RATES.find(s => s.abbr === inputs.stateAbbr);
+  const personalSummary = [
+    inputs.currentAge ? `Age ${inputs.currentAge}` : null,
+    inputs.retirementAge ? `Retire ${inputs.retirementAge}` : null,
+    filingAbbr[inputs.filingStatus] || null,
+    selectedState && selectedState.abbr !== '--' ? `${selectedState.name} (${selectedState.rate}%)` : null,
+    inputs.lifeExpectancy && inputs.lifeExpectancy != 90 ? `LE ${inputs.lifeExpectancy}` : null
+  ].filter(Boolean).join(', ') || 'Not set';
+
+  /* Spouse Info summary */
+  const spouseSummary = [
+    inputs.spouseAge ? `Age ${inputs.spouseAge}` : null,
+    inputs.spouseLifeExpectancy ? `LE ${inputs.spouseLifeExpectancy}` : null
+  ].filter(Boolean).join(', ') || 'Not set';
+
+  /* Account Balances summary */
+  const balParts = [
+    fmtCompact(inputs.traditionalBalance) && `Trad: ${fmtCompact(inputs.traditionalBalance)}`,
+    fmtCompact(inputs.rothBalance) && `Roth: ${fmtCompact(inputs.rothBalance)}`,
+    fmtCompact(inputs.taxableBalance) && `Taxable: ${fmtCompact(inputs.taxableBalance)}`,
+    fmtCompact(inputs.hsaBalance) && `HSA: ${fmtCompact(inputs.hsaBalance)}`
+  ].filter(Boolean);
+  const balanceSummary = balParts.length ? balParts.join(' \u00B7 ') : 'No balances entered';
+
+  /* Annual Contributions summary */
   const contribs = inputs.annualContributions || {};
   const allContribZero = !contribs.traditional && !contribs.roth && !contribs.taxable && !contribs.hsa;
-  const isRetired = inputs.retirementAge && inputs.currentAge && Number(inputs.retirementAge) <= Number(inputs.currentAge);
   const contribSummary = allContribZero
     ? (isRetired ? 'None \u2014 already retired' : 'None set')
     : [
-        contribs.traditional && `Trad: $${Number(contribs.traditional).toLocaleString()}`,
-        contribs.roth && `Roth: $${Number(contribs.roth).toLocaleString()}`,
-        contribs.taxable && `Taxable: $${Number(contribs.taxable).toLocaleString()}`,
-        contribs.hsa && `HSA: $${Number(contribs.hsa).toLocaleString()}`
+        fmtCompact(contribs.traditional) && `Trad: ${fmtCompact(contribs.traditional)}`,
+        fmtCompact(contribs.roth) && `Roth: ${fmtCompact(contribs.roth)}`,
+        fmtCompact(contribs.taxable) && `Taxable: ${fmtCompact(contribs.taxable)}`,
+        fmtCompact(contribs.hsa) && `HSA: ${fmtCompact(contribs.hsa)}`
       ].filter(Boolean).join(' \u00B7 ');
 
+  /* Income summary */
+  const incomeParts = [
+    inputs.grossIncome > 0 ? `Income: ${fmtCompact(inputs.grossIncome)}` : null,
+    inputs.ssAnnualBenefit ? `SS: ${fmtCompact(inputs.ssAnnualBenefit)} at ${inputs.ssStartAge || 67}` : null,
+    isMFJ && inputs.spouseSsBenefit ? `Spouse SS: ${fmtCompact(inputs.spouseSsBenefit)} at ${inputs.spouseSsStartAge || 67}` : null,
+    inputs.pensionIncome > 0 ? `Pension: ${fmtCompact(inputs.pensionIncome)}` : null,
+    inputs.annualSpending ? `Spending: ${fmtCompact(inputs.annualSpending)}` : null
+  ].filter(Boolean);
+  const incomeSummary = incomeParts.length ? incomeParts.join(' \u00B7 ') : 'None set';
+
+  /* Assumptions & Strategy summary */
   const bracketLabel = { '0.10': '10%', '0.12': '12%', '0.22': '22%', '0.24': '24%', '0.32': '32%', '0.35': '35%' };
   const assumptionsSummary = [
     `Growth: ${inputs.preRetirementGrowth}%`,
     `Inflation: ${inputs.inflationRate}%`,
     `Target: ${bracketLabel[inputs.targetBracket] || '24%'} bracket`,
-    inputs.customConversion > 0 ? `Custom: $${Number(inputs.customConversion).toLocaleString()}/yr` : null
+    inputs.customConversion > 0 ? `Custom: ${fmtCompact(inputs.customConversion)}/yr` : null
   ].filter(Boolean).join(' \u00B7 ');
 
   const field = (label, fieldName, opts = {}) => {
@@ -1192,68 +1238,71 @@ function InputForm({ inputs, setInputs, onCalculate }) {
 
     /* ---- Personal Info Card ---- */
     React.createElement('div', { className: 'card' },
-      React.createElement('div', { className: 'card-title' }, 'Personal Info'),
-      React.createElement('div', { className: 'form-grid' },
-        field('Current Age', 'currentAge', { min: 20, max: 100 }),
-        field('Retirement Age', 'retirementAge', { min: 20, max: 100, placeholder: 'same as current if retired' }),
-        field('Life Expectancy', 'lifeExpectancy', { min: 50, max: 120 }),
-        field('Filing Status', 'filingStatus', {
-          type: 'select',
-          options: [
-            { value: 'marriedFilingJointly', label: 'Married Filing Jointly' },
-            { value: 'single', label: 'Single' },
-            { value: 'marriedFilingSeparately', label: 'Married Filing Separately' }
-          ]
-        }),
-        React.createElement('div', { className: 'form-group', key: 'stateSelect' },
-          React.createElement('label', null, `State (${RATES_TAX_YEAR} rates)`),
-          React.createElement('select', {
-            value: inputs.stateAbbr || '--',
-            onChange: (e) => {
-              const selected = STATE_TAX_RATES.find(s => s.abbr === e.target.value);
-              setInputs(prev => ({
-                ...prev,
-                stateAbbr: e.target.value,
-                stateTaxRate: selected ? selected.rate : 0
-              }));
+      React.createElement(Collapsible, { title: 'Personal Info', summary: personalSummary, defaultOpen: true },
+        React.createElement('div', { className: 'form-grid' },
+          field('Current Age', 'currentAge', { min: 20, max: 100 }),
+          field('Retirement Age', 'retirementAge', { min: 20, max: 100, placeholder: 'same as current if retired' }),
+          field('Life Expectancy', 'lifeExpectancy', { min: 50, max: 120 }),
+          field('Filing Status', 'filingStatus', {
+            type: 'select',
+            options: [
+              { value: 'marriedFilingJointly', label: 'Married Filing Jointly' },
+              { value: 'single', label: 'Single' },
+              { value: 'marriedFilingSeparately', label: 'Married Filing Separately' }
+            ]
+          }),
+          React.createElement('div', { className: 'form-group', key: 'stateSelect' },
+            React.createElement('label', null, `State (${RATES_TAX_YEAR} rates)`),
+            React.createElement('select', {
+              value: inputs.stateAbbr || '--',
+              onChange: (e) => {
+                const selected = STATE_TAX_RATES.find(s => s.abbr === e.target.value);
+                setInputs(prev => ({
+                  ...prev,
+                  stateAbbr: e.target.value,
+                  stateTaxRate: selected ? selected.rate : 0
+                }));
+              },
+              style: { maxWidth: '100%' }
             },
-            style: { maxWidth: '100%' }
-          },
-            STATE_TAX_RATES.map(s =>
-              React.createElement('option', { key: s.abbr, value: s.abbr },
-                s.rate > 0 ? `${s.name} (${s.rate}%)` : s.abbr === '--' ? s.name : `${s.name} (No tax)`)
-            )
-          ),
-          React.createElement('small', {
-            style: { display: 'block', marginTop: 4, color: '#888', fontSize: '0.75rem' }
-          }, `Rates reflect ${RATES_TAX_YEAR} top marginal rates. New rates typically take effect each January and are updated here manually.`)
+              STATE_TAX_RATES.map(s =>
+                React.createElement('option', { key: s.abbr, value: s.abbr },
+                  s.rate > 0 ? `${s.name} (${s.rate}%)` : s.abbr === '--' ? s.name : `${s.name} (No tax)`)
+              )
+            ),
+            React.createElement('small', {
+              style: { display: 'block', marginTop: 4, color: '#888', fontSize: '0.75rem' }
+            }, `Rates reflect ${RATES_TAX_YEAR} top marginal rates. New rates typically take effect each January and are updated here manually.`)
+          )
         )
       )
     ),
 
     /* ---- Spouse Info Card (MFJ only) ---- */
     isMFJ && React.createElement('div', { className: 'card' },
-      React.createElement('div', { className: 'card-title' }, 'Spouse Info'),
-      React.createElement('div', { className: 'form-grid' },
-        field('Spouse Current Age', 'spouseAge', { min: 20, max: 100 }),
-        field('Spouse Life Expectancy', 'spouseLifeExpectancy', { min: 50, max: 120 })
+      React.createElement(Collapsible, { title: 'Spouse Info', summary: spouseSummary, defaultOpen: true },
+        React.createElement('div', { className: 'form-grid' },
+          field('Spouse Current Age', 'spouseAge', { min: 20, max: 100 }),
+          field('Spouse Life Expectancy', 'spouseLifeExpectancy', { min: 50, max: 120 })
+        )
       )
     ),
 
     /* ---- Account Balances Card ---- */
     React.createElement('div', { className: 'card' },
-      React.createElement('div', { className: 'card-title' }, 'Account Balances'),
-      React.createElement('div', { className: 'form-grid' },
-        field('Traditional IRA/401k', 'traditionalBalance', { min: 0, prefix: '$' }),
-        field('Roth IRA/401k', 'rothBalance', { min: 0, prefix: '$' }),
-        field('Taxable Brokerage', 'taxableBalance', { min: 0, prefix: '$' }),
-        field('HSA Balance', 'hsaBalance', { min: 0, prefix: '$' })
+      React.createElement(Collapsible, { title: 'Account Balances', summary: balanceSummary, defaultOpen: true },
+        React.createElement('div', { className: 'form-grid' },
+          field('Traditional IRA/401k', 'traditionalBalance', { min: 0, prefix: '$' }),
+          field('Roth IRA/401k', 'rothBalance', { min: 0, prefix: '$' }),
+          field('Taxable Brokerage', 'taxableBalance', { min: 0, prefix: '$' }),
+          field('HSA Balance', 'hsaBalance', { min: 0, prefix: '$' })
+        )
       )
     ),
 
-    /* ---- Annual Contributions Card (collapsed) ---- */
+    /* ---- Annual Contributions Card ---- */
     React.createElement('div', { className: 'card' },
-      React.createElement(Collapsible, { title: 'Annual Contributions (Pre-Retirement)', summary: contribSummary },
+      React.createElement(Collapsible, { title: 'Annual Contributions (Pre-Retirement)', summary: contribSummary, defaultOpen: true },
         React.createElement('div', { className: 'form-grid' },
           field('To Traditional', 'traditional', { min: 0, prefix: '$', nested: true, parentField: 'annualContributions' }),
           field('To Roth', 'roth', { min: 0, prefix: '$', nested: true, parentField: 'annualContributions' }),
@@ -1265,21 +1314,22 @@ function InputForm({ inputs, setInputs, onCalculate }) {
 
     /* ---- Income Card ---- */
     React.createElement('div', { className: 'card' },
-      React.createElement('div', { className: 'card-title' }, 'Income'),
-      React.createElement('div', { className: 'form-grid' },
-        field('Current Gross Income', 'grossIncome', { min: 0, prefix: '$' }),
-        field('Social Security (annual, at FRA)', 'ssAnnualBenefit', { min: 0, prefix: '$', placeholder: 'check ssa.gov/myaccount' }),
-        field('SS Start Age', 'ssStartAge', { min: 62, max: 70 }),
-        isMFJ && field('Spouse SS Benefit', 'spouseSsBenefit', { min: 0, prefix: '$' }),
-        isMFJ && field('Spouse SS Start Age', 'spouseSsStartAge', { min: 62, max: 70 }),
-        field('Pension / Other Income', 'pensionIncome', { min: 0, prefix: '$' }),
-        field('Annual Retirement Spending', 'annualSpending', { min: 0, prefix: '$', placeholder: '~70-80% of income' })
+      React.createElement(Collapsible, { title: 'Income', summary: incomeSummary, defaultOpen: true },
+        React.createElement('div', { className: 'form-grid' },
+          field('Current Gross Income', 'grossIncome', { min: 0, prefix: '$' }),
+          field('Social Security (annual, at FRA)', 'ssAnnualBenefit', { min: 0, prefix: '$', placeholder: 'check ssa.gov/myaccount' }),
+          field('SS Start Age', 'ssStartAge', { min: 62, max: 70 }),
+          isMFJ && field('Spouse SS Benefit', 'spouseSsBenefit', { min: 0, prefix: '$' }),
+          isMFJ && field('Spouse SS Start Age', 'spouseSsStartAge', { min: 62, max: 70 }),
+          field('Pension / Other Income', 'pensionIncome', { min: 0, prefix: '$' }),
+          field('Annual Retirement Spending', 'annualSpending', { min: 0, prefix: '$', placeholder: '~70-80% of income' })
+        )
       )
     ),
 
-    /* ---- Assumptions & Strategy Card (collapsed) ---- */
+    /* ---- Assumptions & Strategy Card ---- */
     React.createElement('div', { className: 'card' },
-      React.createElement(Collapsible, { title: 'Assumptions & Strategy', summary: assumptionsSummary },
+      React.createElement(Collapsible, { title: 'Assumptions & Strategy', summary: assumptionsSummary, defaultOpen: true },
         React.createElement('div', { className: 'form-grid' },
           field('Investment Growth Rate', 'preRetirementGrowth', { suffix: '%', min: 0, max: 20 }),
           React.createElement('div', { className: 'form-group', key: 'advGrowthToggle' },
@@ -1328,7 +1378,7 @@ function InputForm({ inputs, setInputs, onCalculate }) {
     ),
 
     /* ---- Calculate Button (natural position) ---- */
-    React.createElement('div', { ref: calcBtnRef, style: { textAlign: 'center', marginTop: 8, marginBottom: 20 } },
+    React.createElement('div', { ref: calcBtnRef, style: { textAlign: 'right', marginTop: 8, marginBottom: 20 } },
       React.createElement('button', {
         className: 'btn btn-primary',
         onClick: onCalculate,
