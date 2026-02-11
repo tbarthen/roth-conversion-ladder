@@ -209,8 +209,13 @@ h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bot
 }
 .results-overlay .results-header {
   display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 16px; flex-wrap: wrap; gap: 12px;
+  margin-bottom: 16px; flex-wrap: wrap; gap: 12px; color: #e2e8f0;
 }
+.results-overlay .results-header h1 { color: #f1f5f9; }
+.results-overlay .toggle-group { color: #cbd5e1; }
+.results-overlay .tab { background: rgba(255,255,255,0.1); color: #cbd5e1; border-color: rgba(255,255,255,0.15); }
+.results-overlay .tab.active { background: var(--accent-teal); color: white; border-color: var(--accent-teal); }
+.results-overlay .tab:hover:not(.active) { background: rgba(255,255,255,0.18); }
 .results-overlay .results-close {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 8px 20px; border-radius: var(--radius); cursor: pointer;
@@ -975,6 +980,7 @@ const SAMPLE_PROFILES = [
 /* ---- Input Form Component ---- */
 function InputForm({ inputs, setInputs, onCalculate }) {
   const [showAdvancedGrowth, setShowAdvancedGrowth] = useState(false);
+  const [selectedProfile, setSelectedProfile] = useState('');
 
   const update = (field, value) => {
     setInputs(prev => {
@@ -995,6 +1001,7 @@ function InputForm({ inputs, setInputs, onCalculate }) {
   };
 
   const applyProfile = (profileValue) => {
+    setSelectedProfile(profileValue);
     const profile = SAMPLE_PROFILES.find(p => p.value === profileValue);
     if (!profile || !profile.data) return;
     setInputs(prev => ({
@@ -1061,7 +1068,7 @@ function InputForm({ inputs, setInputs, onCalculate }) {
       React.createElement('label', { style: { display: 'block', marginBottom: 6, fontWeight: 600, fontSize: '0.85rem' } },
         'Quick Start \u2014 pick a profile to pre-fill, then adjust to match your situation'),
       React.createElement('select', {
-        value: '',
+        value: selectedProfile,
         onChange: (e) => applyProfile(e.target.value),
         style: { width: '100%', padding: '8px 12px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', fontSize: '0.9rem' }
       },
