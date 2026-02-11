@@ -343,25 +343,28 @@ const TAX_DATA = {
     marriedFilingSeparately: { baseAmount: 0, additionalAmount: 0 }
   },
 
-  /* IRMAA thresholds (2025, based on 2023 MAGI) - monthly surcharges */
+  /* IRMAA thresholds (2025, based on 2023 MAGI) - total monthly premiums per person
+     Part B values are total premium (base $185 + surcharge), not surcharge alone.
+     Part D values are the surcharge only (added to plan premium).
+     Source: SSA / Kiplinger 2025 IRMAA tables */
   irmaa: {
     single: [
-      { magi: 106000, partB: 185.00, partD: 13.70 },
-      { magi: 133000, partB: 259.00, partD: 35.30 },
-      { magi: 167000, partB: 370.00, partD: 57.00 },
-      { magi: 200000, partB: 480.90, partD: 78.60 },
-      { magi: 500000, partB: 554.40, partD: 85.80 }
+      { magi: 106000, partB: 259.00, partD: 13.70 },
+      { magi: 133000, partB: 370.00, partD: 35.30 },
+      { magi: 167000, partB: 480.90, partD: 57.00 },
+      { magi: 200000, partB: 591.90, partD: 78.60 },
+      { magi: 500000, partB: 628.90, partD: 85.80 }
     ],
     marriedFilingJointly: [
-      { magi: 212000, partB: 185.00, partD: 13.70 },
-      { magi: 266000, partB: 259.00, partD: 35.30 },
-      { magi: 334000, partB: 370.00, partD: 57.00 },
-      { magi: 400000, partB: 480.90, partD: 78.60 },
-      { magi: 750000, partB: 554.40, partD: 85.80 }
+      { magi: 212000, partB: 259.00, partD: 13.70 },
+      { magi: 266000, partB: 370.00, partD: 35.30 },
+      { magi: 334000, partB: 480.90, partD: 57.00 },
+      { magi: 400000, partB: 591.90, partD: 78.60 },
+      { magi: 750000, partB: 628.90, partD: 85.80 }
     ],
     marriedFilingSeparately: [
-      { magi: 106000, partB: 480.90, partD: 78.60 },
-      { magi: 394000, partB: 554.40, partD: 85.80 }
+      { magi: 106000, partB: 591.90, partD: 78.60 },
+      { magi: 394000, partB: 628.90, partD: 85.80 }
     ]
   },
 
@@ -614,6 +617,39 @@ function getStandardDeduction(filingStatus, age, spouseAge, year, inflationRate)
 }
 
 /**
+ * OBBB Senior Bonus Deduction (One Big Beautiful Bill Act, signed July 4 2025).
+ * Additional above-the-line deduction for individuals age 65+.
+ * - Up to $6,000 per qualifying individual (tax years 2025-2028 only)
+ * - MAGI phaseout: begins at $75K (Single/HoH) / $150K (MFJ)
+ * - Reduces by $60 for every $1,000 of MAGI above threshold
+ * - Fully phased out at $175K (Single) / $250K (MFJ)
+ * - MFS filers are NOT eligible
+ * Sources: IRS OBBB guidance, TRP Sumner PLLC analysis, Bipartisan Policy Center
+ */
+function calculateSeniorBonusDeduction(magi, filingStatus, age, spouseAge, year) {
+  /* Only applies to tax years 2025 through 2028 */
+  if (year < 2025 || year > 2028) return 0;
+  /* MFS filers are not eligible */
+  if (filingStatus === 'marriedFilingSeparately') return 0;
+
+  const maxPerPerson = 6000;
+  const phaseoutStart = filingStatus === 'marriedFilingJointly' ? 150000 : 75000;
+  const reductionPer1000 = 60; /* $60 reduction per $1,000 over threshold */
+
+  let qualifyingPersons = 0;
+  if (age >= 65) qualifyingPersons++;
+  if (filingStatus === 'marriedFilingJointly' && spouseAge && spouseAge >= 65) qualifyingPersons++;
+
+  if (qualifyingPersons === 0) return 0;
+
+  const excessMAGI = Math.max(0, magi - phaseoutStart);
+  const reductionPerPerson = Math.min(maxPerPerson, Math.floor(excessMAGI / 1000) * reductionPer1000);
+  const perPerson = Math.max(0, maxPerPerson - reductionPerPerson);
+
+  return perPerson * qualifyingPersons;
+}
+
+/**
  * Calculate federal income tax using progressive brackets.
  * @param {number} taxableIncome - Income after deductions
  * @param {Array} brackets - Adjusted brackets for the year
@@ -801,16 +837,16 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
         }
       }
 
-      /* Iteratively find optimal conversion accounting for SS taxation feedback.
-         Conversion income increases provisional income, which can increase
-         the taxable portion of SS, which further increases taxable income. */
+      /* Iteratively find optimal conversion accounting for SS taxation feedback
+         and the OBBB senior bonus deduction (which phases out with MAGI). */
       let testConv = 0;
       const maxConv = Math.max(0, tradBal - rmd);
       for (let iter = 0; iter < 5; iter++) {
         const testTotalIncome = salary + pension + rmd + testConv;
         const testTaxableSS = calculateTaxableSS(ssIncome, testTotalIncome, filingStatus);
         const testAGI = testTotalIncome + testTaxableSS;
-        const testTaxableIncome = Math.max(0, testAGI - stdDed);
+        const testSeniorBonus = calculateSeniorBonusDeduction(testAGI, filingStatus, age, sAge, year);
+        const testTaxableIncome = Math.max(0, testAGI - stdDed - testSeniorBonus);
         const room = Math.max(0, targetCeiling - testTaxableIncome + testConv);
         testConv = Math.min(room, maxConv);
       }
@@ -833,7 +869,8 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
     const taxableSS = calculateTaxableSS(ssIncome, totalOrdinaryIncome, filingStatus);
     const agi = totalOrdinaryIncome + taxableSS;
     const stdDed = getStandardDeduction(filingStatus, age, sAge, year, bracketInflation / 100);
-    const taxableIncome = Math.max(0, agi - stdDed);
+    const seniorBonus = calculateSeniorBonusDeduction(agi, filingStatus, age, sAge, year);
+    const taxableIncome = Math.max(0, agi - stdDed - seniorBonus);
     const brackets = getAdjustedBrackets(filingStatus, year, bracketInflation / 100);
     const federalTax = calculateFederalTax(taxableIncome, brackets);
     const stateTax = agi * (stateTaxRate / 100);
@@ -896,7 +933,7 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
     results.push({
       year, age, spouseAge: sAge, tradBal, rothBal, taxBal, hsaBal,
       salary, pension, ssIncome, taxableSS, rmd, conversionAmount,
-      agi, taxableIncome, federalTax, stateTax, irmaaSurcharge: irmaa.annual,
+      agi, seniorBonus, taxableIncome, federalTax, stateTax, irmaaSurcharge: irmaa.annual,
       irmaaTier: irmaa.tier, totalTax, cumulativeTax, marginalRate,
       bracketFill,
       totalEstate: tradBal + rothBal + taxBal + hsaBal,
@@ -1633,17 +1670,84 @@ function KeyAssumptions() {
       React.createElement('li', null, 'Tax brackets: 2025 federal brackets (IRS Rev. Proc. 2024-40 + OBBB), inflation-adjusted for future years'),
       React.createElement('li', null, 'Standard deduction: 2025 amounts including One Big Beautiful Bill Act 5% increase'),
       React.createElement('li', null, 'Additional standard deduction for age 65+: $2,000 (single), $1,600 (married, per spouse)'),
+      React.createElement('li', null, 'OBBB Senior Bonus Deduction: up to $6,000/person age 65+ (2025\u20132028 only), phases out above $75K single / $150K MFJ. MFS not eligible'),
       React.createElement('li', null, 'RMD start age: 73 (SECURE 2.0 Act), moving to 75 starting 2033'),
       React.createElement('li', null, 'RMD divisors: IRS Uniform Lifetime Table III (2022 revision). Joint Life Table II used when spouse is sole beneficiary and 10+ years younger'),
       React.createElement('li', null, 'Social Security taxation: provisional income thresholds ($25K/$34K single, $32K/$44K MFJ) for 0%/50%/85% taxable tiers'),
-      React.createElement('li', null, 'IRMAA: 2025 Medicare Part B & D surcharge thresholds (based on MAGI from 2 years prior)'),
-      React.createElement('li', null, 'Net Investment Income Tax (NIIT): 3.8% on net investment income above $200K (single) / $250K (MFJ) — NOT inflation-adjusted'),
+      React.createElement('li', null, 'IRMAA: 2025 Medicare Part B & D total monthly premiums (based on MAGI from 2 years prior)'),
+      React.createElement('li', null, 'Net Investment Income Tax (NIIT): 3.8% on net investment income above $200K (single) / $250K (MFJ) \u2014 NOT inflation-adjusted'),
       React.createElement('li', null, 'Capital gains: 0%/15%/20% brackets for 2025, inflation-adjusted'),
       React.createElement('li', null, 'Social Security COLA: modeled at ~80% of CPI inflation'),
       React.createElement('li', null, 'All brackets and thresholds inflation-adjusted from 2025 base year using the user-specified bracket inflation rate'),
-      React.createElement('li', null, 'State tax: 2025 top marginal rates from Tax Foundation; modeled as flat rate on AGI (simplification — select state, then adjust rate if needed)'),
+      React.createElement('li', null, 'State tax: 2025 top marginal rates from Tax Foundation; modeled as flat rate on AGI (simplification \u2014 select state, then adjust rate if needed)'),
       React.createElement('li', null, 'Retirement spending withdrawn from: taxable account first, then Roth, then HSA'),
       React.createElement('li', null, 'Does not model: ACA subsidy cliffs, state-specific deductions, AMT, estate/inheritance taxes, or required beginning date nuances')
+    )
+  );
+}
+
+/* ---- Sources & References Section ---- */
+function SourcesReferences() {
+  const link = (text, url) => React.createElement('a', {
+    href: url, target: '_blank', rel: 'noopener noreferrer',
+    style: { color: 'var(--accent-teal)', textDecoration: 'underline' }
+  }, text);
+
+  return React.createElement(Collapsible, { title: 'Sources & References', defaultOpen: false },
+    React.createElement('p', {
+      style: { fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 12 }
+    }, 'The tax constants used in this calculator are derived from the following authoritative sources. Click any link to verify.'),
+    React.createElement('ul', { className: 'assumptions-list' },
+      React.createElement('li', null,
+        React.createElement('strong', null, 'Tax brackets & standard deduction: '),
+        link('IRS Rev. Proc. 2024-40', 'https://kpmg.com/us/en/taxnewsflash/news/2024/10/tnf-rev-proc-2024-40-inflation-adjustments-for-2025-individual-taxpayers.html'),
+        ' \u2014 2025 inflation adjustments for individual taxpayers'
+      ),
+      React.createElement('li', null,
+        React.createElement('strong', null, 'OBBB standard deduction increase: '),
+        link('IRS Rev. Proc. 2025-32', 'https://www.irs.gov/pub/irs-drop/rp-25-32.pdf'),
+        ' \u2014 One Big Beautiful Bill Act 5% standard deduction boost'
+      ),
+      React.createElement('li', null,
+        React.createElement('strong', null, 'OBBB Senior Bonus Deduction: '),
+        link('IRS \u2014 OBBB Tax Deductions for Seniors', 'https://www.irs.gov/newsroom/one-big-beautiful-bill-act-tax-deductions-for-working-americans-and-seniors'),
+        ' \u2014 Up to $6,000/person age 65+, tax years 2025\u20132028'
+      ),
+      React.createElement('li', null,
+        React.createElement('strong', null, 'IRMAA thresholds & premiums: '),
+        link('Kiplinger \u2014 Medicare Premiums 2025', 'https://www.kiplinger.com/retirement/medicare/medicare-premiums-2025-irmaa-for-parts-b-and-d'),
+        ' \u2014 Part B & Part D IRMAA brackets and total monthly premiums'
+      ),
+      React.createElement('li', null,
+        React.createElement('strong', null, 'Social Security taxation: '),
+        link('IRS Publication 915', 'https://www.irs.gov/publications/p915'),
+        ' \u2014 Provisional income thresholds for taxable Social Security'
+      ),
+      React.createElement('li', null,
+        React.createElement('strong', null, 'RMD Uniform Lifetime Table: '),
+        link('IRS Publication 590-B', 'https://www.irs.gov/publications/p590b'),
+        ' \u2014 Distribution rules and life expectancy tables'
+      ),
+      React.createElement('li', null,
+        React.createElement('strong', null, 'Capital gains brackets: '),
+        link('IRS Rev. Proc. 2024-40', 'https://kpmg.com/us/en/taxnewsflash/news/2024/10/tnf-rev-proc-2024-40-inflation-adjustments-for-2025-individual-taxpayers.html'),
+        ' \u2014 0%/15%/20% long-term capital gains thresholds'
+      ),
+      React.createElement('li', null,
+        React.createElement('strong', null, 'Net Investment Income Tax (NIIT): '),
+        link('IRS \u2014 NIIT Q&A', 'https://www.irs.gov/newsroom/questions-and-answers-on-the-net-investment-income-tax'),
+        ' \u2014 3.8% surtax thresholds (not inflation-adjusted)'
+      ),
+      React.createElement('li', null,
+        React.createElement('strong', null, 'State income tax rates: '),
+        link('Tax Foundation', 'https://taxfoundation.org/data/all/state/state-income-tax-rates-2025/'),
+        ' \u2014 2025 top marginal or flat rates by state'
+      ),
+      React.createElement('li', null,
+        React.createElement('strong', null, 'OBBB tax changes overview: '),
+        link('Tax Foundation Analysis', 'https://taxfoundation.org/research/all/federal/one-big-beautiful-bill-act-tax-changes/'),
+        ' \u2014 Comprehensive summary of all OBBB tax provisions'
+      )
     )
   );
 }
@@ -1771,7 +1875,8 @@ function App() {
             { key: 'tableA', label: 'No Conversion Table' },
             { key: 'tableB', label: 'Optimized Table' },
             inputs.customConversion > 0 && { key: 'tableC', label: 'Custom Table' },
-            { key: 'assumptions', label: 'Assumptions' }
+            { key: 'assumptions', label: 'Assumptions' },
+            { key: 'sources', label: 'Sources' }
           ].filter(Boolean).map(t =>
             React.createElement('div', {
               key: t.key,
@@ -1830,6 +1935,10 @@ function App() {
 
         activeTab === 'assumptions' && React.createElement('div', { className: 'card' },
           React.createElement(KeyAssumptions, null)
+        ),
+
+        activeTab === 'sources' && React.createElement('div', { className: 'card' },
+          React.createElement(SourcesReferences, null)
         )
       )
     )
