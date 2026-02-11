@@ -56,13 +56,17 @@ h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bot
 /* Cards */
 .card {
   background: var(--bg-card); border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md); padding: 24px; margin-bottom: 20px;
+  box-shadow: var(--shadow-md); padding: 24px; margin-bottom: 16px;
+}
+.card-title {
+  font-size: 0.85rem; font-weight: 600; color: var(--accent-teal-dark);
+  text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px;
 }
 
 /* Form styles */
 .form-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 16px;
+  gap: 16px; max-width: 780px;
 }
 .form-group { display: flex; flex-direction: column; }
 .form-group label {
@@ -71,7 +75,7 @@ h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bot
 }
 .form-group input, .form-group select {
   padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius);
-  font-size: 0.9rem; background: var(--bg-input); transition: border-color 0.2s;
+  font-size: 0.9rem; background: var(--bg-input); transition: border-color 0.2s, background 0.2s;
 }
 .form-group input:focus, .form-group select:focus {
   outline: none; border-color: var(--accent-teal); box-shadow: 0 0 0 3px rgba(13,148,136,0.1);
@@ -79,12 +83,48 @@ h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bot
 .form-group input[type="number"] { -moz-appearance: textfield; }
 .form-group input::-webkit-outer-spin-button,
 .form-group input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.form-group.profile-tinted input,
+.form-group.profile-tinted select { background-color: #f0fdf4; }
 .form-section-title {
   font-size: 0.85rem; font-weight: 600; color: var(--accent-teal-dark);
   text-transform: uppercase; letter-spacing: 0.05em;
   margin: 20px 0 12px; padding-top: 16px; border-top: 1px solid var(--border);
 }
 .form-section-title:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+
+/* Input with prefix/suffix */
+.input-wrapper {
+  position: relative; display: flex; align-items: center;
+}
+.input-wrapper input {
+  width: 100%; padding-left: 24px;
+}
+.input-wrapper .input-prefix {
+  position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+  color: var(--text-muted); font-size: 0.85rem; pointer-events: none; z-index: 1;
+}
+.input-wrapper .input-suffix {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  color: var(--text-muted); font-size: 0.85rem; pointer-events: none; z-index: 1;
+}
+.input-wrapper.has-suffix input { padding-right: 28px; padding-left: 12px; }
+.input-wrapper.has-prefix input { padding-left: 24px; }
+
+/* Collapsible summary line */
+.collapsible-summary {
+  font-size: 0.8rem; color: var(--text-muted); margin-left: 8px;
+  font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Sticky calculate bar */
+.sticky-calc-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 500;
+  background: var(--bg-card); border-top: 1px solid var(--border);
+  box-shadow: 0 -4px 12px rgba(0,0,0,0.08);
+  padding: 12px 20px; text-align: center;
+  animation: slideUp 0.2s ease-out;
+}
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
 /* Buttons */
 .btn {
@@ -169,12 +209,13 @@ h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bot
 
 /* Collapsible */
 .collapsible-header {
-  display: flex; align-items: center; justify-content: space-between;
-  cursor: pointer; padding: 12px 0; user-select: none;
+  display: flex; align-items: center;
+  cursor: pointer; padding: 4px 0; user-select: none; gap: 8px;
 }
-.collapsible-header .arrow { transition: transform 0.2s; font-size: 0.8rem; }
+.collapsible-header .arrow { transition: transform 0.2s; font-size: 0.7rem; color: var(--text-muted); flex-shrink: 0; }
 .collapsible-header .arrow.open { transform: rotate(90deg); }
-.collapsible-content { overflow: hidden; transition: max-height 0.3s; }
+.collapsible-header h3 { flex-shrink: 0; margin-bottom: 0; }
+.collapsible-content { overflow: hidden; transition: max-height 0.3s; padding-top: 12px; }
 .assumptions-list { font-size: 0.8rem; color: var(--text-secondary); line-height: 1.8; }
 .assumptions-list li { margin-left: 20px; }
 
@@ -227,11 +268,12 @@ h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bot
 
 /* Responsive */
 @media (max-width: 768px) {
-  .form-grid { grid-template-columns: 1fr 1fr; }
+  .form-grid { grid-template-columns: 1fr 1fr; max-width: 100%; }
   .summary-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 480px) {
   .form-grid { grid-template-columns: 1fr; }
+  .collapsible-summary { display: none; }
 }
 </style>
 </head>
@@ -898,15 +940,16 @@ const fmtPct = (n) => `${(n * 100).toFixed(0)}%`;
 const fmtRate = (n) => `${n.toFixed(1)}%`;
 
 /* ---- Collapsible Section ---- */
-function Collapsible({ title, children, defaultOpen = false }) {
+function Collapsible({ title, summary, children, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);
   return React.createElement('div', null,
     React.createElement('div', {
       className: 'collapsible-header',
       onClick: () => setOpen(!open)
     },
+      React.createElement('span', { className: `arrow ${open ? 'open' : ''}` }, '\u25B6'),
       React.createElement('h3', null, title),
-      React.createElement('span', { className: `arrow ${open ? 'open' : ''}` }, '\u25B6')
+      !open && summary && React.createElement('span', { className: 'collapsible-summary' }, summary)
     ),
     open && React.createElement('div', { className: 'collapsible-content' }, children)
   );
@@ -981,11 +1024,26 @@ const SAMPLE_PROFILES = [
 function InputForm({ inputs, setInputs, onCalculate }) {
   const [showAdvancedGrowth, setShowAdvancedGrowth] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState('');
+  const [profileFields, setProfileFields] = useState(new Set());
+  const [editedFields, setEditedFields] = useState(new Set());
+  const [showStickyCalc, setShowStickyCalc] = useState(false);
+  const calcBtnRef = useRef(null);
+
+  /* Intersection observer for sticky calculate button */
+  useEffect(() => {
+    if (!calcBtnRef.current) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setShowStickyCalc(!entry.isIntersecting),
+      { threshold: 0 }
+    );
+    observer.observe(calcBtnRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   const update = (field, value) => {
+    setEditedFields(prev => new Set(prev).add(field));
     setInputs(prev => {
       const next = { ...prev, [field]: value };
-      /* Keep all growth rates in sync when advanced mode is off */
       if (field === 'preRetirementGrowth' && !showAdvancedGrowth) {
         next.rothGrowth = value;
         next.taxableGrowth = value;
@@ -994,6 +1052,7 @@ function InputForm({ inputs, setInputs, onCalculate }) {
     });
   };
   const updateNested = (parent, field, value) => {
+    setEditedFields(prev => new Set(prev).add(`${parent}.${field}`));
     setInputs(prev => ({
       ...prev,
       [parent]: { ...prev[parent], [field]: value }
@@ -1004,10 +1063,20 @@ function InputForm({ inputs, setInputs, onCalculate }) {
     setSelectedProfile(profileValue);
     const profile = SAMPLE_PROFILES.find(p => p.value === profileValue);
     if (!profile || !profile.data) return;
+    /* Track which fields this profile sets */
+    const fields = new Set();
+    Object.keys(profile.data).forEach(k => {
+      if (k === 'annualContributions') {
+        Object.keys(profile.data[k]).forEach(ck => fields.add(`annualContributions.${ck}`));
+      } else {
+        fields.add(k);
+      }
+    });
+    setProfileFields(fields);
+    setEditedFields(new Set());
     setInputs(prev => ({
       ...prev,
       ...profile.data,
-      /* Preserve state selection and assumptions */
       stateAbbr: prev.stateAbbr,
       stateTaxRate: prev.stateTaxRate,
       preRetirementGrowth: prev.preRetirementGrowth,
@@ -1021,17 +1090,44 @@ function InputForm({ inputs, setInputs, onCalculate }) {
     }));
   };
 
+  const isTinted = (fieldName, nested, parentField) => {
+    const key = nested ? `${parentField}.${fieldName}` : fieldName;
+    return profileFields.has(key) && !editedFields.has(key);
+  };
+
   const isMFJ = inputs.filingStatus === 'marriedFilingJointly';
 
+  /* Summary lines for collapsible sections */
+  const contribs = inputs.annualContributions || {};
+  const allContribZero = !contribs.traditional && !contribs.roth && !contribs.taxable && !contribs.hsa;
+  const isRetired = inputs.retirementAge && inputs.currentAge && Number(inputs.retirementAge) <= Number(inputs.currentAge);
+  const contribSummary = allContribZero
+    ? (isRetired ? 'None \u2014 already retired' : 'None set')
+    : [
+        contribs.traditional && `Trad: $${Number(contribs.traditional).toLocaleString()}`,
+        contribs.roth && `Roth: $${Number(contribs.roth).toLocaleString()}`,
+        contribs.taxable && `Taxable: $${Number(contribs.taxable).toLocaleString()}`,
+        contribs.hsa && `HSA: $${Number(contribs.hsa).toLocaleString()}`
+      ].filter(Boolean).join(' \u00B7 ');
+
+  const bracketLabel = { '0.10': '10%', '0.12': '12%', '0.22': '22%', '0.24': '24%', '0.32': '32%', '0.35': '35%' };
+  const assumptionsSummary = [
+    `Growth: ${inputs.preRetirementGrowth}%`,
+    `Inflation: ${inputs.inflationRate}%`,
+    `Target: ${bracketLabel[inputs.targetBracket] || '24%'} bracket`,
+    inputs.customConversion > 0 ? `Custom: $${Number(inputs.customConversion).toLocaleString()}/yr` : null
+  ].filter(Boolean).join(' \u00B7 ');
+
   const field = (label, fieldName, opts = {}) => {
-    const { type = 'number', min, max, step, suffix, options, nested, parentField, placeholder } = opts;
+    const { type = 'number', min, max, step, prefix, suffix, options, nested, parentField, placeholder } = opts;
     const val = nested ? (inputs[parentField] || {})[fieldName] : inputs[fieldName];
     const onChange = nested
       ? (e) => updateNested(parentField, fieldName, type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value)
       : (e) => update(fieldName, type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value);
+    const tinted = isTinted(fieldName, nested, parentField);
 
     if (type === 'select') {
-      return React.createElement('div', { className: 'form-group', key: fieldName },
+      return React.createElement('div', { className: `form-group${tinted ? ' profile-tinted' : ''}`, key: fieldName },
         React.createElement('label', null, label),
         React.createElement('select', { value: val || '', onChange },
           (options || []).map(o =>
@@ -1041,165 +1137,207 @@ function InputForm({ inputs, setInputs, onCalculate }) {
       );
     }
 
-    return React.createElement('div', { className: 'form-group', key: fieldName },
-      React.createElement('label', null, label + (suffix ? ` (${suffix})` : '')),
-      React.createElement('input', {
-        type: 'number',
-        value: val === undefined || val === null ? '' : val,
-        placeholder: placeholder || '',
-        onChange,
-        min, max, step: step || (suffix === '%' ? '0.1' : '1')
-      })
+    const hasPrefix = !!prefix;
+    const hasSuffix = suffix === '%';
+    const inputEl = React.createElement('input', {
+      type: 'number',
+      value: val === undefined || val === null ? '' : val,
+      placeholder: placeholder || '',
+      onChange,
+      min, max, step: step || (hasSuffix ? '0.1' : '1')
+    });
+
+    if (hasPrefix || hasSuffix) {
+      return React.createElement('div', { className: `form-group${tinted ? ' profile-tinted' : ''}`, key: fieldName },
+        React.createElement('label', null, label),
+        React.createElement('div', { className: `input-wrapper${hasPrefix ? ' has-prefix' : ''}${hasSuffix ? ' has-suffix' : ''}` },
+          hasPrefix && React.createElement('span', { className: 'input-prefix' }, '$'),
+          inputEl,
+          hasSuffix && React.createElement('span', { className: 'input-suffix' }, '%')
+        )
+      );
+    }
+
+    return React.createElement('div', { className: `form-group${tinted ? ' profile-tinted' : ''}`, key: fieldName },
+      React.createElement('label', null, label),
+      inputEl
     );
   };
 
-  return React.createElement('div', { className: 'card' },
-    /* App title inside the card */
-    React.createElement('div', { style: { marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid var(--border)' } },
-      React.createElement('h1', null, 'Roth Conversion Ladder Optimizer'),
-      React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: '0.875rem' } },
-        'Compare Roth conversion strategies to minimize lifetime tax liability')
-    ),
-
-    /* Sample profile selector */
-    React.createElement('div', {
-      style: { marginBottom: 16, padding: '12px 16px', background: 'var(--bg-alt)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }
-    },
-      React.createElement('label', { style: { display: 'block', marginBottom: 6, fontWeight: 600, fontSize: '0.85rem' } },
-        'Quick Start \u2014 pick a profile to pre-fill, then adjust to match your situation'),
-      React.createElement('select', {
-        value: selectedProfile,
-        onChange: (e) => applyProfile(e.target.value),
-        style: { width: '100%', padding: '8px 12px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', fontSize: '0.9rem' }
+  return React.createElement(React.Fragment, null,
+    /* ---- Title & Profile Card ---- */
+    React.createElement('div', { className: 'card' },
+      React.createElement('div', { style: { marginBottom: 16 } },
+        React.createElement('h1', null, 'Roth Conversion Ladder Optimizer'),
+        React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: '0.875rem' } },
+          'Compare Roth conversion strategies to minimize lifetime tax liability')
+      ),
+      React.createElement('div', {
+        style: { padding: '12px 16px', background: 'var(--bg-input)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }
       },
-        SAMPLE_PROFILES.map(p =>
-          React.createElement('option', { key: p.value, value: p.value },
-            p.desc ? `${p.label} \u2014 ${p.desc}` : p.label)
+        React.createElement('label', { style: { display: 'block', marginBottom: 6, fontWeight: 600, fontSize: '0.85rem' } },
+          'Quick Start \u2014 pick a profile to pre-fill, then adjust to match your situation'),
+        React.createElement('select', {
+          value: selectedProfile,
+          onChange: (e) => applyProfile(e.target.value),
+          style: { width: '100%', padding: '8px 12px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', fontSize: '0.9rem' }
+        },
+          SAMPLE_PROFILES.map(p =>
+            React.createElement('option', { key: p.value, value: p.value },
+              p.desc ? `${p.label} \u2014 ${p.desc}` : p.label)
+          )
         )
       )
     ),
 
-    React.createElement('div', { className: 'form-section-title' }, 'Personal Info'),
-    React.createElement('div', { className: 'form-grid' },
-      field('Current Age', 'currentAge', { min: 20, max: 100 }),
-      field('Retirement Age', 'retirementAge', { min: 20, max: 100, placeholder: 'same as current if retired' }),
-      field('Life Expectancy', 'lifeExpectancy', { min: 50, max: 120 }),
-      field('Filing Status', 'filingStatus', {
-        type: 'select',
-        options: [
-          { value: 'marriedFilingJointly', label: 'Married Filing Jointly' },
-          { value: 'single', label: 'Single' },
-          { value: 'marriedFilingSeparately', label: 'Married Filing Separately' }
-        ]
-      }),
-      /* State selector — sets tax rate automatically */
-      React.createElement('div', { className: 'form-group', key: 'stateSelect' },
-        React.createElement('label', null, `State (${RATES_TAX_YEAR} rates)`),
-        React.createElement('select', {
-          value: inputs.stateAbbr || '--',
-          onChange: (e) => {
-            const selected = STATE_TAX_RATES.find(s => s.abbr === e.target.value);
-            setInputs(prev => ({
-              ...prev,
-              stateAbbr: e.target.value,
-              stateTaxRate: selected ? selected.rate : 0
-            }));
+    /* ---- Personal Info Card ---- */
+    React.createElement('div', { className: 'card' },
+      React.createElement('div', { className: 'card-title' }, 'Personal Info'),
+      React.createElement('div', { className: 'form-grid' },
+        field('Current Age', 'currentAge', { min: 20, max: 100 }),
+        field('Retirement Age', 'retirementAge', { min: 20, max: 100, placeholder: 'same as current if retired' }),
+        field('Life Expectancy', 'lifeExpectancy', { min: 50, max: 120 }),
+        field('Filing Status', 'filingStatus', {
+          type: 'select',
+          options: [
+            { value: 'marriedFilingJointly', label: 'Married Filing Jointly' },
+            { value: 'single', label: 'Single' },
+            { value: 'marriedFilingSeparately', label: 'Married Filing Separately' }
+          ]
+        }),
+        React.createElement('div', { className: 'form-group', key: 'stateSelect' },
+          React.createElement('label', null, `State (${RATES_TAX_YEAR} rates)`),
+          React.createElement('select', {
+            value: inputs.stateAbbr || '--',
+            onChange: (e) => {
+              const selected = STATE_TAX_RATES.find(s => s.abbr === e.target.value);
+              setInputs(prev => ({
+                ...prev,
+                stateAbbr: e.target.value,
+                stateTaxRate: selected ? selected.rate : 0
+              }));
+            },
+            style: { maxWidth: '100%' }
           },
-          style: { maxWidth: '100%' }
-        },
-          STATE_TAX_RATES.map(s =>
-            React.createElement('option', { key: s.abbr, value: s.abbr },
-              s.rate > 0 ? `${s.name} (${s.rate}%)` : s.abbr === '--' ? s.name : `${s.name} (No tax)`)
-          )
-        ),
-        React.createElement('small', {
-          style: { display: 'block', marginTop: 4, color: '#888', fontSize: '0.75rem' }
-        }, `Rates reflect ${RATES_TAX_YEAR} top marginal rates. New rates typically take effect each January and are updated here manually.`)
+            STATE_TAX_RATES.map(s =>
+              React.createElement('option', { key: s.abbr, value: s.abbr },
+                s.rate > 0 ? `${s.name} (${s.rate}%)` : s.abbr === '--' ? s.name : `${s.name} (No tax)`)
+            )
+          ),
+          React.createElement('small', {
+            style: { display: 'block', marginTop: 4, color: '#888', fontSize: '0.75rem' }
+          }, `Rates reflect ${RATES_TAX_YEAR} top marginal rates. New rates typically take effect each January and are updated here manually.`)
+        )
       )
     ),
 
-    isMFJ && React.createElement(React.Fragment, null,
-      React.createElement('div', { className: 'form-section-title' }, 'Spouse Info'),
+    /* ---- Spouse Info Card (MFJ only) ---- */
+    isMFJ && React.createElement('div', { className: 'card' },
+      React.createElement('div', { className: 'card-title' }, 'Spouse Info'),
       React.createElement('div', { className: 'form-grid' },
         field('Spouse Current Age', 'spouseAge', { min: 20, max: 100 }),
         field('Spouse Life Expectancy', 'spouseLifeExpectancy', { min: 50, max: 120 })
       )
     ),
 
-    React.createElement('div', { className: 'form-section-title' }, 'Account Balances'),
-    React.createElement('div', { className: 'form-grid' },
-      field('Traditional IRA/401k', 'traditionalBalance', { min: 0, suffix: '$' }),
-      field('Roth IRA/401k', 'rothBalance', { min: 0, suffix: '$' }),
-      field('Taxable Brokerage', 'taxableBalance', { min: 0, suffix: '$' }),
-      field('HSA Balance', 'hsaBalance', { min: 0, suffix: '$' })
+    /* ---- Account Balances Card ---- */
+    React.createElement('div', { className: 'card' },
+      React.createElement('div', { className: 'card-title' }, 'Account Balances'),
+      React.createElement('div', { className: 'form-grid' },
+        field('Traditional IRA/401k', 'traditionalBalance', { min: 0, prefix: '$' }),
+        field('Roth IRA/401k', 'rothBalance', { min: 0, prefix: '$' }),
+        field('Taxable Brokerage', 'taxableBalance', { min: 0, prefix: '$' }),
+        field('HSA Balance', 'hsaBalance', { min: 0, prefix: '$' })
+      )
     ),
 
-    React.createElement('div', { className: 'form-section-title' }, 'Annual Contributions (Pre-Retirement)'),
-    React.createElement('div', { className: 'form-grid' },
-      field('To Traditional', 'traditional', { min: 0, nested: true, parentField: 'annualContributions' }),
-      field('To Roth', 'roth', { min: 0, nested: true, parentField: 'annualContributions' }),
-      field('To Taxable', 'taxable', { min: 0, nested: true, parentField: 'annualContributions' }),
-      field('To HSA', 'hsa', { min: 0, nested: true, parentField: 'annualContributions' })
+    /* ---- Annual Contributions Card (collapsed) ---- */
+    React.createElement('div', { className: 'card' },
+      React.createElement(Collapsible, { title: 'Annual Contributions (Pre-Retirement)', summary: contribSummary },
+        React.createElement('div', { className: 'form-grid' },
+          field('To Traditional', 'traditional', { min: 0, prefix: '$', nested: true, parentField: 'annualContributions' }),
+          field('To Roth', 'roth', { min: 0, prefix: '$', nested: true, parentField: 'annualContributions' }),
+          field('To Taxable', 'taxable', { min: 0, prefix: '$', nested: true, parentField: 'annualContributions' }),
+          field('To HSA', 'hsa', { min: 0, prefix: '$', nested: true, parentField: 'annualContributions' })
+        )
+      )
     ),
 
-    React.createElement('div', { className: 'form-section-title' }, 'Income'),
-    React.createElement('div', { className: 'form-grid' },
-      field('Current Gross Income', 'grossIncome', { min: 0 }),
-      field('Social Security (annual, at FRA)', 'ssAnnualBenefit', { min: 0, placeholder: 'check ssa.gov/myaccount' }),
-      field('SS Start Age', 'ssStartAge', { min: 62, max: 70 }),
-      isMFJ && field('Spouse SS Benefit', 'spouseSsBenefit', { min: 0 }),
-      isMFJ && field('Spouse SS Start Age', 'spouseSsStartAge', { min: 62, max: 70 }),
-      field('Pension / Other Income', 'pensionIncome', { min: 0 }),
-      field('Annual Retirement Spending', 'annualSpending', { min: 0, placeholder: '~70-80% of pre-retirement income' })
+    /* ---- Income Card ---- */
+    React.createElement('div', { className: 'card' },
+      React.createElement('div', { className: 'card-title' }, 'Income'),
+      React.createElement('div', { className: 'form-grid' },
+        field('Current Gross Income', 'grossIncome', { min: 0, prefix: '$' }),
+        field('Social Security (annual, at FRA)', 'ssAnnualBenefit', { min: 0, prefix: '$', placeholder: 'check ssa.gov/myaccount' }),
+        field('SS Start Age', 'ssStartAge', { min: 62, max: 70 }),
+        isMFJ && field('Spouse SS Benefit', 'spouseSsBenefit', { min: 0, prefix: '$' }),
+        isMFJ && field('Spouse SS Start Age', 'spouseSsStartAge', { min: 62, max: 70 }),
+        field('Pension / Other Income', 'pensionIncome', { min: 0, prefix: '$' }),
+        field('Annual Retirement Spending', 'annualSpending', { min: 0, prefix: '$', placeholder: '~70-80% of income' })
+      )
     ),
 
-    React.createElement('div', { className: 'form-section-title' }, 'Assumptions'),
-    React.createElement('div', { className: 'form-grid' },
-      field('Investment Growth Rate', 'preRetirementGrowth', { suffix: '%', min: 0, max: 20 }),
-      React.createElement('div', { className: 'form-group', key: 'advGrowthToggle' },
-        React.createElement('label', { style: { visibility: 'hidden' } }, ' '),
-        React.createElement('button', {
-          type: 'button',
-          onClick: () => {
-            if (showAdvancedGrowth) {
-              /* Collapsing: sync all rates back to the main rate */
-              setInputs(prev => ({ ...prev, rothGrowth: prev.preRetirementGrowth, taxableGrowth: prev.preRetirementGrowth }));
-            }
-            setShowAdvancedGrowth(!showAdvancedGrowth);
-          },
-          style: { background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.8rem', padding: 0, textDecoration: 'underline' }
-        }, showAdvancedGrowth ? 'Use single rate for all accounts' : 'Set different rates per account')
-      ),
-      showAdvancedGrowth && field('Roth Growth Rate', 'rothGrowth', { suffix: '%', min: 0, max: 20 }),
-      showAdvancedGrowth && field('Taxable Growth Rate', 'taxableGrowth', { suffix: '%', min: 0, max: 20 }),
-      field('Inflation Rate', 'inflationRate', { suffix: '%', min: 0, max: 10 }),
-      field('Bracket Inflation Adj.', 'bracketInflation', { suffix: '%', min: 0, max: 10 })
+    /* ---- Assumptions & Strategy Card (collapsed) ---- */
+    React.createElement('div', { className: 'card' },
+      React.createElement(Collapsible, { title: 'Assumptions & Strategy', summary: assumptionsSummary },
+        React.createElement('div', { className: 'form-grid' },
+          field('Investment Growth Rate', 'preRetirementGrowth', { suffix: '%', min: 0, max: 20 }),
+          React.createElement('div', { className: 'form-group', key: 'advGrowthToggle' },
+            React.createElement('label', { style: { visibility: 'hidden' } }, ' '),
+            React.createElement('button', {
+              type: 'button',
+              onClick: () => {
+                if (showAdvancedGrowth) {
+                  setInputs(prev => ({ ...prev, rothGrowth: prev.preRetirementGrowth, taxableGrowth: prev.preRetirementGrowth }));
+                }
+                setShowAdvancedGrowth(!showAdvancedGrowth);
+              },
+              style: { background: 'none', border: 'none', color: 'var(--accent-teal)', cursor: 'pointer', fontSize: '0.8rem', padding: 0, textDecoration: 'underline' }
+            }, showAdvancedGrowth ? 'Use single rate for all accounts' : 'Set different rates per account')
+          ),
+          showAdvancedGrowth && field('Roth Growth Rate', 'rothGrowth', { suffix: '%', min: 0, max: 20 }),
+          showAdvancedGrowth && field('Taxable Growth Rate', 'taxableGrowth', { suffix: '%', min: 0, max: 20 }),
+          field('Inflation Rate', 'inflationRate', { suffix: '%', min: 0, max: 10 }),
+          field('Bracket Inflation Adj.', 'bracketInflation', { suffix: '%', min: 0, max: 10 })
+        ),
+        React.createElement('div', { style: { marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' } },
+          React.createElement('div', { style: { fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 12 } }, 'Conversion Strategy'),
+          React.createElement('div', { className: 'form-grid' },
+            field('Target Bracket', 'targetBracket', {
+              type: 'select',
+              options: [
+                { value: '0.10', label: '10% Bracket' },
+                { value: '0.12', label: '12% Bracket' },
+                { value: '0.22', label: '22% Bracket' },
+                { value: '0.24', label: '24% Bracket (Default)' },
+                { value: '0.32', label: '32% Bracket' },
+                { value: '0.35', label: '35% Bracket' }
+              ]
+            }),
+            field('Custom Annual Conversion', 'customConversion', { min: 0, prefix: '$' }),
+            field('Tax Payment Source', 'taxPaymentSource', {
+              type: 'select',
+              options: [
+                { value: 'taxable', label: 'Pay from Taxable Account' },
+                { value: 'conversion', label: 'Pay from Converted Amount' }
+              ]
+            })
+          )
+        )
+      )
     ),
 
-    React.createElement('div', { className: 'form-section-title' }, 'Conversion Strategy'),
-    React.createElement('div', { className: 'form-grid' },
-      field('Target Bracket', 'targetBracket', {
-        type: 'select',
-        options: [
-          { value: '0.10', label: '10% Bracket' },
-          { value: '0.12', label: '12% Bracket' },
-          { value: '0.22', label: '22% Bracket' },
-          { value: '0.24', label: '24% Bracket (Default)' },
-          { value: '0.32', label: '32% Bracket' },
-          { value: '0.35', label: '35% Bracket' }
-        ]
-      }),
-      field('Custom Annual Conversion', 'customConversion', { min: 0 }),
-      field('Tax Payment Source', 'taxPaymentSource', {
-        type: 'select',
-        options: [
-          { value: 'taxable', label: 'Pay from Taxable Account' },
-          { value: 'conversion', label: 'Pay from Converted Amount' }
-        ]
-      })
+    /* ---- Calculate Button (natural position) ---- */
+    React.createElement('div', { ref: calcBtnRef, style: { textAlign: 'center', marginTop: 8, marginBottom: 20 } },
+      React.createElement('button', {
+        className: 'btn btn-primary',
+        onClick: onCalculate,
+        style: { padding: '14px 56px', fontSize: '1.05rem' }
+      }, 'Calculate Optimal Strategy')
     ),
 
-    React.createElement('div', { style: { textAlign: 'right', marginTop: 20 } },
+    /* ---- Sticky Calculate Bar ---- */
+    showStickyCalc && React.createElement('div', { className: 'sticky-calc-bar' },
       React.createElement('button', {
         className: 'btn btn-primary',
         onClick: onCalculate,
