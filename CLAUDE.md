@@ -41,7 +41,7 @@ git push origin main
 ```
 
 ## Annual Tax Rate Updates
-- A GitHub Action (`.github/workflows/annual-tax-reminder.yml`) fires every January 2 and creates a GitHub issue reminding you to update state tax rates.
+- The same workflow (`.github/workflows/auto-merge-claude.yml`) also has a scheduled job that fires every January 2 and creates a GitHub issue reminding you to update state tax rates. Both jobs live in one file to avoid junk notification emails from GitHub.
 - To update: edit `data/rates.json` (year, updated date, any changed rates), commit, and push. The app fetches this file at runtime.
 - Alternatively, ask Claude Code: "Update the state tax rates for [year]. Research the latest rates from Tax Foundation and update data/rates.json."
 - The script `scripts/update-state-tax-rates.js` can also sync rates into the embedded fallback in index.html.
