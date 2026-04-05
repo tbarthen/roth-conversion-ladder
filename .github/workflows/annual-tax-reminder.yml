@@ -32,36 +32,39 @@ jobs:
         with:
           script: |
             const year = new Date().getFullYear();
+            const body = [
+              "## What is this?",
+              "",
+              "You built a **Roth Conversion Ladder Optimizer** app that uses state income tax rates. Those rates are hardcoded and need to be refreshed once a year when new rates take effect.",
+              "",
+              "This is an automated reminder from your own repository \u2014 not spam.",
+              "",
+              "## What to do",
+              "",
+              "**Easiest option \u2014 ask Claude Code:**",
+              `> "Update the state tax rates for ${year}. Research the latest rates from Tax Foundation and update data/rates.json."`,
+              "",
+              "**Manual option:**",
+              "1. Check the latest rates at [Tax Foundation](https://taxfoundation.org/data/all/state/state-income-tax-rates/)",
+              "2. Edit `data/rates.json` in this repo \u2014 update the `year`, `updated`, and any changed `rate` values",
+              "3. Commit and push \u2014 the app fetches this file at runtime, so it picks up changes immediately",
+              "",
+              "## Why this matters",
+              "",
+              "The app currently shows rates for the **previous tax year**. Some states change rates annually. If you don't update, the calculator will use slightly stale state tax numbers (the federal brackets are inflation-adjusted automatically, but state rates are not).",
+              "",
+              "## Timing note",
+              "",
+              `This reminder fires on **January 2** so you can start planning early. If Tax Foundation hasn't published their ${year} roundup yet, check back in a week or two \u2014 they typically publish by mid-January.`,
+              "",
+              "## When you're done",
+              "",
+              "Close this issue. A new one will open next January."
+            ].join("\n");
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: `Update tax rates for ${year}`,
               labels: ['tax-data-update'],
-              body: `## What is this?
-
-You built a **Roth Conversion Ladder Optimizer** app that uses state income tax rates. Those rates are hardcoded and need to be refreshed once a year when new rates take effect.
-
-This is an automated reminder from your own repository — not spam.
-
-## What to do
-
-**Easiest option — ask Claude Code:**
-> "Update the state tax rates for ${year}. Research the latest rates from Tax Foundation and update data/rates.json."
-
-**Manual option:**
-1. Check the latest rates at [Tax Foundation](https://taxfoundation.org/data/all/state/state-income-tax-rates/)
-2. Edit \`data/rates.json\` in this repo — update the \`year\`, \`updated\`, and any changed \`rate\` values
-3. Commit and push — the app fetches this file at runtime, so it picks up changes immediately
-
-## Why this matters
-
-The app currently shows rates for the **previous tax year**. Some states change rates annually. If you don't update, the calculator will use slightly stale state tax numbers (the federal brackets are inflation-adjusted automatically, but state rates are not).
-
-## Timing note
-
-This reminder fires on **January 2** so you can start planning early. If Tax Foundation hasn't published their ${year} roundup yet, check back in a week or two — they typically publish by mid-January.
-
-## When you're done
-
-Close this issue. A new one will open next January.`
+              body: body
             });
