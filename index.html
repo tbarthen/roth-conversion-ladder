@@ -775,7 +775,7 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
   const inflationRate = n(inputs.inflationRate);
   const bracketInflation = n(inputs.bracketInflation);
 
-  const currentYear = 2025;
+  const currentYear = new Date().getFullYear();
   const isRetired = retirementAge <= currentAge;
   const isMFJ = filingStatus === 'marriedFilingJointly';
   const maxAge = Math.max(lifeExpectancy, isMFJ && spouseLifeExpectancy ? spouseLifeExpectancy + (currentAge - (spouseAge || currentAge)) : lifeExpectancy);
@@ -794,11 +794,14 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
     const sAge = spouseAge ? spouseAge + yearOffset : null;
     const working = !isRetired && age < retirementAge;
 
-    /* Growth on balances (beginning of year) */
+    /* RMD calculation — must use prior-year-end balance (before this year's growth) */
+    const rmd = calculateRMD(age, tradBal, sAge, isMFJ, year);
+
+    /* Growth on balances (applied after RMD is determined) */
     const tradGrowthAmt = tradBal * (preRetirementGrowth / 100);
     const rothGrowthAmt = rothBal * (rothGrowth / 100);
     const taxGrowthAmt = taxBal * (taxableGrowth / 100);
-    const hsaGrowthAmt = hsaBal * 0.05;
+    const hsaGrowthAmt = hsaBal * (preRetirementGrowth / 100);
 
     tradBal += tradGrowthAmt;
     rothBal += rothGrowthAmt;
@@ -823,9 +826,6 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
     if (isMFJ && sAge && sAge >= (spouseSsStartAge || 67)) {
       ssIncome += inflateAmount(spouseSsBenefit || 0, currentYear, year, inflationRate / 100 * 0.8);
     }
-
-    /* RMD calculation */
-    const rmd = calculateRMD(age, tradBal, sAge, isMFJ, year);
 
     /* Conversion amount */
     let conversionAmount = 0;
@@ -877,7 +877,7 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
     const taxableIncome = Math.max(0, agi - stdDed - seniorBonus);
     const brackets = getAdjustedBrackets(filingStatus, year, bracketInflation / 100);
     const federalTax = calculateFederalTax(taxableIncome, brackets);
-    const stateTax = agi * (stateTaxRate / 100);
+    const stateTax = taxableIncome * (stateTaxRate / 100);
     const marginalRate = getMarginalBracket(taxableIncome, brackets);
 
     /* Store MAGI for IRMAA lookback */
@@ -1679,12 +1679,13 @@ function KeyAssumptions() {
       React.createElement('li', null, 'RMD divisors: IRS Uniform Lifetime Table III (2022 revision). Joint Life Table II used when spouse is sole beneficiary and 10+ years younger'),
       React.createElement('li', null, 'Social Security taxation: provisional income thresholds ($25K/$34K single, $32K/$44K MFJ) for 0%/50%/85% taxable tiers'),
       React.createElement('li', null, 'IRMAA: 2025 Medicare Part B & D total monthly premiums (based on MAGI from 2 years prior)'),
-      React.createElement('li', null, 'Net Investment Income Tax (NIIT): 3.8% on net investment income above $200K (single) / $250K (MFJ) \u2014 NOT inflation-adjusted'),
+      React.createElement('li', null, 'Net Investment Income Tax (NIIT): 3.8% surtax thresholds are defined ($200K single / $250K MFJ) but not yet applied in projections \u2014 a future enhancement'),
       React.createElement('li', null, 'Capital gains: 0%/15%/20% brackets for 2025, inflation-adjusted'),
       React.createElement('li', null, 'Social Security COLA: modeled at ~80% of CPI inflation'),
       React.createElement('li', null, 'All brackets and thresholds inflation-adjusted from 2025 base year using the user-specified bracket inflation rate'),
-      React.createElement('li', null, 'State tax: 2025 top marginal rates from Tax Foundation; modeled as flat rate on AGI (simplification \u2014 select state, then adjust rate if needed)'),
+      React.createElement('li', null, 'State tax: 2025 top marginal rates from Tax Foundation; modeled as flat rate on federal taxable income (simplification \u2014 select state, then adjust rate if needed)'),
       React.createElement('li', null, 'Retirement spending withdrawn from: taxable account first, then Roth, then HSA'),
+      React.createElement('li', null, 'Taxable account withdrawals are modeled without capital gains tax (a simplification \u2014 actual tax depends on cost basis and holding period)'),
       React.createElement('li', null, 'Does not model: ACA subsidy cliffs, state-specific deductions, AMT, estate/inheritance taxes, or required beginning date nuances')
     )
   );
