@@ -24,7 +24,10 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Merge into main
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
+          MERGE_SHA: ${{ github.sha }}
         run: |
           git checkout main
-          git merge ${{ github.sha }} --no-edit -m "Auto-merge ${{ github.ref_name }} into main"
+          git merge "$MERGE_SHA" --no-edit -m "Auto-merge $BRANCH_NAME into main"
           git push origin main

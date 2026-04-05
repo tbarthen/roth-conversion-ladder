@@ -44,9 +44,15 @@ if (!rates.year || !rates.updated || !Array.isArray(rates.states) || rates.state
   process.exit(1);
 }
 
+const SAFE_STRING = /^[A-Za-z\s\-'.]+$/;
+
 for (const s of rates.states) {
   if (!s.abbr || !s.name || s.rate === undefined) {
     console.error(`Error: invalid entry: ${JSON.stringify(s)}`);
+    process.exit(1);
+  }
+  if (!SAFE_STRING.test(s.abbr) || !SAFE_STRING.test(s.name)) {
+    console.error(`Error: unsafe characters in abbr or name: ${JSON.stringify(s)}`);
     process.exit(1);
   }
 }
