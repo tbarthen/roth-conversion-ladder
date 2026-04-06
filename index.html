@@ -1702,6 +1702,18 @@ function SummaryDashboard({ scenarioA, scenarioB, scenarioC, breakevenAge }) {
         React.createElement('div', { className: 'value blue' }, fmt(lastC.cumulativeTax)),
         React.createElement('div', { className: 'sub' }, `Estate: ${fmt(lastC.totalEstate)}`)
       )
+    ),
+    rothPenaltyTotal > 0 && React.createElement('div', {
+      style: {
+        background: 'var(--accent-orange-light, #fff7ed)', border: '1px solid var(--accent-orange, #f59e0b)',
+        borderRadius: 'var(--radius)', padding: '12px 16px', marginTop: 12,
+        fontSize: '0.85rem', color: 'var(--text-secondary, #6b7280)'
+      }
+    },
+      React.createElement('strong', null, 'About the 10% early withdrawal penalty: '),
+      'The 10% early withdrawal penalty applies when you withdraw Roth conversion amounts before age 59\u00BD ',
+      'and before the conversion has \u201Cseasoned\u201D for 5 years. This is why the Roth conversion ladder strategy ',
+      'requires planning ahead \u2014 you convert now, wait 5 years, then withdraw penalty-free.'
     )
   );
 }
@@ -1917,6 +1929,8 @@ function KeyAssumptions() {
       React.createElement('li', null, 'State tax: 2025 top marginal rates from Tax Foundation; modeled as flat rate on federal taxable income (simplification \u2014 select state, then adjust rate if needed)'),
       React.createElement('li', null, 'Retirement spending withdrawn from: taxable account first, then Roth, then HSA (last resort)'),
       React.createElement('li', null, 'HSA withdrawals for spending shortfall are treated as non-medical: taxed as ordinary income at age 65+, taxed as ordinary income plus 20% penalty before age 65'),
+      React.createElement('li', null, 'Roth 5-year rule: each Roth conversion is tracked individually with its own 5-year clock. Withdrawals of conversion amounts before age 59\u00BD and before the 5-year seasoning period incur a 10% early withdrawal penalty (IRS ordering rules applied: contributions first, then conversions FIFO, then earnings)'),
+      React.createElement('li', null, 'Existing Roth IRA balance at projection start is treated as fully seasoned contributions (no penalty applies). New Roth contributions during working years are also tracked as penalty-free basis'),
       React.createElement('li', null, 'Taxable account withdrawals are modeled without capital gains tax (a simplification \u2014 actual tax depends on cost basis and holding period)'),
       React.createElement('li', null, 'Survivor filing status: when the spouse\u2019s life expectancy is reached, the model switches filing status from Married Filing Jointly to Single for all subsequent years. The IRS Qualifying Surviving Spouse status (which preserves MFJ brackets for up to 2 years after death) is not modeled because it requires a qualifying dependent child \u2014 a condition that typically does not apply to retired couples. Spouse Social Security income, IRMAA dual premiums, and joint life table RMD calculations also cease after death'),
       React.createElement('li', null, 'Limitation: the model does not handle the primary filer dying before the spouse. Life expectancy inputs should be set so the primary filer outlives the spouse, or use Single filing status for single-life projections'),
