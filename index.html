@@ -866,7 +866,7 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
          and the OBBB senior bonus deduction (which phases out with MAGI). */
       let testConv = 0;
       const maxConv = Math.max(0, tradBal - rmd);
-      for (let iter = 0; iter < 5; iter++) {
+      for (let iter = 0; iter < 10; iter++) {
         const testTotalIncome = salary + pension + rmd + testConv;
         const testTaxableSS = calculateTaxableSS(ssIncome, testTotalIncome, filingStatus);
         const testAGI = testTotalIncome + testTaxableSS;
@@ -876,6 +876,60 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
         testConv = Math.min(room, maxConv);
       }
       conversionAmount = Math.max(0, testConv);
+
+      /* IRMAA cliff detection — back off conversion when the IRMAA surcharge
+         from crossing a tier boundary exceeds the marginal tax benefit of the
+         extra conversion dollars. IRMAA uses a 2-year lookback: conversion in
+         year Y affects IRMAA in year Y+2, so thresholds are adjusted to year Y
+         (i.e. the IRMAA year Y+2 minus the 2-year lookback = year Y). */
+      if (conversionAmount > 0 && (age + 2 >= 65 || (sAge && sAge + 2 >= 65))) {
+        const irmaaTiers = TAX_DATA.irmaa[filingStatus] || TAX_DATA.irmaa.single;
+        const irmaaPeople = isMFJ ? 2 : 1;
+        const inflRate = bracketInflation / 100;
+
+        for (let t = irmaaTiers.length - 1; t >= 0; t--) {
+          const cliff = inflateAmount(irmaaTiers[t].magi, TAX_DATA.baseYear, year, inflRate);
+
+          const curTotal = salary + pension + rmd + conversionAmount;
+          const curSS = calculateTaxableSS(ssIncome, curTotal, filingStatus);
+          const curMAGI = curTotal + curSS;
+
+          if (curMAGI <= cliff) continue;
+
+          /* Find conversion amount that puts MAGI just below this cliff */
+          let capConv = conversionAmount;
+          for (let ci = 0; ci < 10; ci++) {
+            const capTotal = salary + pension + rmd + capConv;
+            const capSS = calculateTaxableSS(ssIncome, capTotal, filingStatus);
+            const capMAGI = capTotal + capSS;
+            if (capMAGI <= cliff) break;
+            capConv -= (capMAGI - cliff);
+            capConv = Math.max(0, capConv);
+          }
+
+          const extraDollars = conversionAmount - capConv;
+          if (extraDollars <= 0) continue;
+
+          /* Incremental IRMAA surcharge for crossing this specific tier */
+          const surchargeAtTier = (irmaaTiers[t].partB + irmaaTiers[t].partD) * 12 * irmaaPeople;
+          const surchargeBelow = t > 0
+            ? (irmaaTiers[t - 1].partB + irmaaTiers[t - 1].partD) * 12 * irmaaPeople
+            : 0;
+          const irmaaDelta = surchargeAtTier - surchargeBelow;
+
+          /* Marginal tax benefit: value of converting those extra dollars at
+             the current marginal rate (tax saved by Roth-converting now vs.
+             paying ordinary income tax on future distributions). */
+          const curSeniorBonus = calculateSeniorBonusDeduction(curMAGI, filingStatus, age, sAge, year);
+          const curTaxable = Math.max(0, curMAGI - stdDed - curSeniorBonus);
+          const marginalRate = getMarginalBracket(curTaxable, brackets);
+          const marginalBenefit = extraDollars * marginalRate;
+
+          if (irmaaDelta > marginalBenefit) {
+            conversionAmount = Math.max(0, capConv);
+          }
+        }
+      }
 
       /* Don't bother with tiny conversions */
       if (conversionAmount < 1000) conversionAmount = 0;
