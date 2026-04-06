@@ -826,17 +826,22 @@ function calculateCapitalGainsTax(ordinaryTaxableIncome, capitalGainsIncome, fil
 function runProjection(inputs, scenario, customConversion = 0, targetBracketRate = 0.24, taxPaymentSource = 'taxable') {
   /* Coerce all numeric inputs — handles empty-string defaults gracefully */
   const n = (v) => Number(v) || 0;
-  const currentAge = n(inputs.currentAge);
+  const clamp = (val, min, max, name) => {
+    const clamped = Math.min(Math.max(val, min), max);
+    if (clamped !== val) console.warn(`Input "${name}" clamped: ${val} \u2192 ${clamped}`);
+    return clamped;
+  };
+  const currentAge = clamp(n(inputs.currentAge), 18, 120, 'currentAge');
   const retirementAge = n(inputs.retirementAge) || currentAge;
-  const lifeExpectancy = n(inputs.lifeExpectancy) || 90;
+  const lifeExpectancy = clamp(n(inputs.lifeExpectancy) || 90, currentAge + 1, 120, 'lifeExpectancy');
   let filingStatus = inputs.filingStatus;
   const stateTaxRate = n(inputs.stateTaxRate);
   const spouseAge = n(inputs.spouseAge);
   const spouseLifeExpectancy = n(inputs.spouseLifeExpectancy) || 90;
-  const traditionalBalance = n(inputs.traditionalBalance);
-  const rothBalance = n(inputs.rothBalance);
-  const taxableBalance = n(inputs.taxableBalance);
-  const hsaBalance = n(inputs.hsaBalance);
+  const traditionalBalance = clamp(n(inputs.traditionalBalance), 0, 100_000_000, 'traditionalBalance');
+  const rothBalance = clamp(n(inputs.rothBalance), 0, 100_000_000, 'rothBalance');
+  const taxableBalance = clamp(n(inputs.taxableBalance), 0, 100_000_000, 'taxableBalance');
+  const hsaBalance = clamp(n(inputs.hsaBalance), 0, 100_000_000, 'hsaBalance');
   const annualContributions = inputs.annualContributions || { traditional: 0, roth: 0, taxable: 0, hsa: 0 };
   const grossIncome = n(inputs.grossIncome);
   const ssAnnualBenefit = n(inputs.ssAnnualBenefit);
@@ -844,11 +849,11 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
   const spouseSsBenefit = n(inputs.spouseSsBenefit);
   const spouseSsStartAge = n(inputs.spouseSsStartAge) || 67;
   const pensionIncome = n(inputs.pensionIncome);
-  const annualSpending = n(inputs.annualSpending);
-  const preRetirementGrowth = n(inputs.preRetirementGrowth);
-  const rothGrowth = n(inputs.rothGrowth);
-  const taxableGrowth = n(inputs.taxableGrowth);
-  const dividendYield = n(inputs.dividendYield);
+  const annualSpending = clamp(n(inputs.annualSpending), 0, 1_000_000, 'annualSpending');
+  const preRetirementGrowth = clamp(n(inputs.preRetirementGrowth), -10, 30, 'preRetirementGrowth');
+  const rothGrowth = clamp(n(inputs.rothGrowth), -10, 30, 'rothGrowth');
+  const taxableGrowth = clamp(n(inputs.taxableGrowth), -10, 30, 'taxableGrowth');
+  const dividendYield = clamp(n(inputs.dividendYield), 0, 10, 'dividendYield');
   const taxableCostBasis = inputs.taxableCostBasis !== '' && inputs.taxableCostBasis !== undefined
     ? n(inputs.taxableCostBasis)
     : taxableBalance; /* Default: basis = balance (no embedded gains) */
@@ -1003,6 +1008,7 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
       let testConv = 0;
       const maxConv = Math.max(0, tradBal - rmd);
       for (let iter = 0; iter < 10; iter++) {
+        const prevTestConv = testConv;
         const testTotalIncome = salary + pension + rmd + testConv;
         const testTaxableSS = calculateTaxableSS(ssIncome, testTotalIncome, filingStatus);
         const testAGI = testTotalIncome + testTaxableSS;
@@ -1010,6 +1016,7 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
         const testTaxableIncome = Math.max(0, testAGI - stdDed - testSeniorBonus);
         const room = Math.max(0, targetCeiling - testTaxableIncome + testConv);
         testConv = Math.min(room, maxConv);
+        if (Math.abs(testConv - prevTestConv) < 1) break;
       }
       conversionAmount = Math.max(0, testConv);
 
@@ -1035,12 +1042,14 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
           /* Find conversion amount that puts MAGI just below this cliff */
           let capConv = conversionAmount;
           for (let ci = 0; ci < 10; ci++) {
+            const prevCapConv = capConv;
             const capTotal = salary + pension + rmd + capConv + dividendIncome;
             const capSS = calculateTaxableSS(ssIncome, capTotal, filingStatus);
             const capMAGI = capTotal + capSS;
             if (capMAGI <= cliff) break;
             capConv -= (capMAGI - cliff);
             capConv = Math.max(0, capConv);
+            if (Math.abs(capConv - prevCapConv) < 1) break;
           }
 
           const extraDollars = conversionAmount - capConv;
@@ -1358,7 +1367,7 @@ const SAMPLE_PROFILES = [
 ];
 
 /* ---- Input Form Component ---- */
-function InputForm({ inputs, setInputs, onCalculate }) {
+function InputForm({ inputs, setInputs, onCalculate, ratesFallback }) {
   const [showAdvancedGrowth, setShowAdvancedGrowth] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState('');
   const [profileFields, setProfileFields] = useState(new Set());
@@ -1613,7 +1622,10 @@ function InputForm({ inputs, setInputs, onCalculate }) {
             ),
             React.createElement('small', {
               style: { display: 'block', marginTop: 4, color: '#888', fontSize: '0.75rem' }
-            }, `Rates reflect ${RATES_TAX_YEAR} top marginal rates. New rates typically take effect each January and are updated here manually.`)
+            }, `Rates reflect ${RATES_TAX_YEAR} top marginal rates. New rates typically take effect each January and are updated here manually.`),
+            ratesFallback && React.createElement('small', {
+              style: { display: 'block', marginTop: 4, color: 'var(--accent-orange)', fontSize: '0.75rem' }
+            }, 'Using built-in 2025 state tax rates \u2014 latest rates could not be loaded.')
           )
         )
       )
@@ -1742,6 +1754,10 @@ function InputForm({ inputs, setInputs, onCalculate }) {
 
 /* ---- Summary Dashboard ---- */
 function SummaryDashboard({ scenarioA, scenarioB, scenarioC, breakevenAge }) {
+  if (!scenarioA?.length || !scenarioB?.length) {
+    return React.createElement('div', { className: 'card', style: { textAlign: 'center', padding: 40, color: 'var(--text-muted)' } },
+      'Unable to generate projection with these inputs. Please check your age, spending, and account balances.');
+  }
   const lastA = scenarioA[scenarioA.length - 1];
   const lastB = scenarioB[scenarioB.length - 1];
   const lastC = scenarioC ? scenarioC[scenarioC.length - 1] : null;
@@ -2153,6 +2169,7 @@ function App() {
   const [showReal, setShowReal] = useState(false);
   const [calculating, setCalculating] = useState(false);
   const [ratesInfo, setRatesInfo] = useState({ year: RATES_TAX_YEAR, updated: RATES_LAST_UPDATED });
+  const [ratesFallback, setRatesFallback] = useState(false);
 
   /* Fetch latest rates from data/rates.json at startup */
   useEffect(() => {
@@ -2160,16 +2177,23 @@ function App() {
       .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then(data => {
         if (data.states && data.states.length > 0) {
+          const validStates = data.states.filter(s => {
+            if (typeof s.rate !== 'number' || !isFinite(s.rate)) {
+              console.warn('Discarded state with invalid rate:', s);
+              return false;
+            }
+            return true;
+          });
           STATE_TAX_RATES = [
             { abbr: "--", name: "-- Select State --", rate: 0 },
-            ...data.states
+            ...validStates
           ];
           RATES_LAST_UPDATED = data.updated || RATES_LAST_UPDATED;
           RATES_TAX_YEAR = data.year || RATES_TAX_YEAR;
           setRatesInfo({ year: data.year, updated: data.updated });
         }
       })
-      .catch(() => { /* Use embedded fallback rates — no action needed */ });
+      .catch(() => { setRatesFallback(true); });
   }, []);
 
   const onCalculate = useCallback(() => {
@@ -2195,7 +2219,7 @@ function App() {
   }, [inputs]);
 
   return React.createElement('div', { className: 'app-container' },
-    React.createElement(InputForm, { inputs, setInputs, onCalculate }),
+    React.createElement(InputForm, { inputs, setInputs, onCalculate, ratesFallback }),
 
     calculating && React.createElement('div', { className: 'results-overlay' },
       React.createElement('div', { className: 'results-inner' },
