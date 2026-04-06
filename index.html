@@ -918,12 +918,15 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
           const irmaaDelta = surchargeAtTier - surchargeBelow;
 
           /* Marginal tax benefit: value of converting those extra dollars at
-             the current marginal rate (tax saved by Roth-converting now vs.
-             paying ordinary income tax on future distributions). */
+             the full marginal rate (federal + state + NIIT if applicable).
+             Tax saved by Roth-converting now vs. paying ordinary income tax
+             on future distributions. */
           const curSeniorBonus = calculateSeniorBonusDeduction(curMAGI, filingStatus, age, sAge, year);
           const curTaxable = Math.max(0, curMAGI - stdDed - curSeniorBonus);
           const marginalRate = getMarginalBracket(curTaxable, brackets);
-          const marginalBenefit = extraDollars * marginalRate;
+          const niitThreshold = TAX_DATA.niit.thresholds[filingStatus] || TAX_DATA.niit.thresholds.single;
+          const niitAdder = curMAGI > niitThreshold ? TAX_DATA.niit.rate : 0;
+          const marginalBenefit = extraDollars * (marginalRate + stateTaxRate / 100 + niitAdder);
 
           if (irmaaDelta > marginalBenefit) {
             conversionAmount = Math.max(0, capConv);
