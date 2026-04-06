@@ -1026,7 +1026,7 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
         for (let t = irmaaTiers.length - 1; t >= 0; t--) {
           const cliff = inflateAmount(irmaaTiers[t].magi, TAX_DATA.baseYear, year, inflRate);
 
-          const curTotal = salary + pension + rmd + conversionAmount;
+          const curTotal = salary + pension + rmd + conversionAmount + dividendIncome;
           const curSS = calculateTaxableSS(ssIncome, curTotal, filingStatus);
           const curMAGI = curTotal + curSS;
 
@@ -1035,7 +1035,7 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
           /* Find conversion amount that puts MAGI just below this cliff */
           let capConv = conversionAmount;
           for (let ci = 0; ci < 10; ci++) {
-            const capTotal = salary + pension + rmd + capConv;
+            const capTotal = salary + pension + rmd + capConv + dividendIncome;
             const capSS = calculateTaxableSS(ssIncome, capTotal, filingStatus);
             const capMAGI = capTotal + capSS;
             if (capMAGI <= cliff) break;
