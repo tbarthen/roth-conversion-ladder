@@ -820,16 +820,19 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
   /**
    * Withdraw from Roth using IRS ordering rules:
    * 1. Contributions (always penalty-free)
-   * 2. Conversions in FIFO order (10% penalty if < 5 years AND age < 60)
-   * 3. Earnings (taxable + penalty if age < 60)
-   * Returns { withdrawn, penalty }
+   * 2. Conversions in FIFO order (10% penalty if unseasoned AND age < 59½)
+   * 3. Earnings (10% penalty if age < 59½; income tax on earnings not modeled)
+   * @param {number} amount - Desired withdrawal amount
+   * @param {number} currentYear - Calendar year of withdrawal
+   * @param {number} age - Filer's integer age this year
+   * @returns {{ withdrawn: number, penalty: number }}
    */
   function withdrawFromRoth(amount, currentYear, age) {
     if (amount <= 0) return { withdrawn: 0, penalty: 0 };
     let remaining = Math.min(amount, rothBal);
     let totalWithdrawn = 0;
     let penalty = 0;
-    const penaltyApplies = age < 60; /* Safe simplification of age 59½ */
+    const penaltyApplies = age < 59; /* At integer age 59, filer turns 59½ mid-year */
 
     /* 1. Draw from contributions first — always penalty-free */
     const fromContrib = Math.min(remaining, rothContributions);
@@ -846,13 +849,13 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
       remaining -= draw;
       totalWithdrawn += draw;
 
-      /* 10% penalty if conversion not yet seasoned (< 5 years) AND under age 60 */
+      /* 10% penalty if conversion not yet seasoned (< 5 years) AND under age 59½ */
       if (penaltyApplies && (currentYear - conv.year) < 5) {
         penalty += draw * 0.10;
       }
     }
 
-    /* 3. Draw from earnings (implicit remainder) — penalty if under 60 */
+    /* 3. Draw from earnings (implicit remainder) — 10% penalty if under 59½ */
     if (remaining > 0) {
       totalWithdrawn += remaining;
       if (penaltyApplies) {
@@ -1931,6 +1934,7 @@ function KeyAssumptions() {
       React.createElement('li', null, 'HSA withdrawals for spending shortfall are treated as non-medical: taxed as ordinary income at age 65+, taxed as ordinary income plus 20% penalty before age 65'),
       React.createElement('li', null, 'Roth 5-year rule: each Roth conversion is tracked individually with its own 5-year clock. Withdrawals of conversion amounts before age 59\u00BD and before the 5-year seasoning period incur a 10% early withdrawal penalty (IRS ordering rules applied: contributions first, then conversions FIFO, then earnings)'),
       React.createElement('li', null, 'Existing Roth IRA balance at projection start is treated as fully seasoned contributions (no penalty applies). New Roth contributions during working years are also tracked as penalty-free basis'),
+      React.createElement('li', null, 'Roth earnings withdrawals: the 10% early withdrawal penalty is modeled, but ordinary income tax on early earnings withdrawals is not. This is an acceptable simplification \u2014 earnings withdrawals indicate a poorly planned ladder and should be rare in practice'),
       React.createElement('li', null, 'Taxable account withdrawals are modeled without capital gains tax (a simplification \u2014 actual tax depends on cost basis and holding period)'),
       React.createElement('li', null, 'Survivor filing status: when the spouse\u2019s life expectancy is reached, the model switches filing status from Married Filing Jointly to Single for all subsequent years. The IRS Qualifying Surviving Spouse status (which preserves MFJ brackets for up to 2 years after death) is not modeled because it requires a qualifying dependent child \u2014 a condition that typically does not apply to retired couples. Spouse Social Security income, IRMAA dual premiums, and joint life table RMD calculations also cease after death'),
       React.createElement('li', null, 'Limitation: the model does not handle the primary filer dying before the spouse. Life expectancy inputs should be set so the primary filer outlives the spouse, or use Single filing status for single-life projections'),
