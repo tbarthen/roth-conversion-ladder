@@ -734,6 +734,27 @@ function calculateIRMAA(magi, filingStatus, year, inflationRate, numPeople = 1) 
 }
 
 /* ============================================================
+   MODULE 5b: NIIT CALCULATOR
+   Net Investment Income Tax — 3.8% surtax on investment income
+   for high-income filers. Thresholds are NOT inflation-adjusted.
+   ============================================================ */
+
+/**
+ * Calculate Net Investment Income Tax (NIIT).
+ * @param {number} magi - Modified Adjusted Gross Income
+ * @param {number} netInvestmentIncome - Investment income (taxable account growth/withdrawals)
+ * @param {string} filingStatus - Filing status key
+ * @returns {number} NIIT amount
+ */
+function calculateNIIT(magi, netInvestmentIncome, filingStatus) {
+  if (netInvestmentIncome <= 0 || magi <= 0) return 0;
+  const threshold = TAX_DATA.niit.thresholds[filingStatus] || TAX_DATA.niit.thresholds.single;
+  const excessMAGI = magi - threshold;
+  if (excessMAGI <= 0) return 0;
+  return TAX_DATA.niit.rate * Math.min(netInvestmentIncome, excessMAGI);
+}
+
+/* ============================================================
    MODULE 6: PROJECTION ENGINE
    Year-by-year simulation for each scenario.
    ============================================================ */
@@ -868,61 +889,88 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
     tradBal = Math.max(0, tradBal);
     rothBal += conversionAmount;
 
-    /* Calculate total income and taxes */
-    const totalOrdinaryIncome = salary + pension + rmd + conversionAmount;
-    const taxableSS = calculateTaxableSS(ssIncome, totalOrdinaryIncome, filingStatus);
-    const agi = totalOrdinaryIncome + taxableSS;
-    const stdDed = getStandardDeduction(filingStatus, age, sAge, year, bracketInflation / 100);
-    const seniorBonus = calculateSeniorBonusDeduction(agi, filingStatus, age, sAge, year);
-    const taxableIncome = Math.max(0, agi - stdDed - seniorBonus);
+    /* Calculate total income and taxes.
+       HSA non-medical withdrawals are taxable income (+ 20% penalty if under 65).
+       We iterate because HSA withdrawal depends on tax, which depends on HSA income. */
     const brackets = getAdjustedBrackets(filingStatus, year, bracketInflation / 100);
-    const federalTax = calculateFederalTax(taxableIncome, brackets);
-    const stateTax = taxableIncome * (stateTaxRate / 100);
-    const marginalRate = getMarginalBracket(taxableIncome, brackets);
+    const stdDed = getStandardDeduction(filingStatus, age, sAge, year, bracketInflation / 100);
 
-    /* Store MAGI for IRMAA lookback */
-    magiHistory.push(agi);
+    /* Net investment income for NIIT = taxable account growth (realized as withdrawals) */
+    const netInvestmentIncome = Math.max(0, taxGrowthAmt);
 
-    /* IRMAA (applies to those 65+, based on MAGI from 2 years prior) */
+    let fromHSA = 0;
+    let hsaPenalty = 0;
+    let fromTaxable = 0;
+    let fromRoth = 0;
+
+    /* Compute taxes iteratively to account for HSA withdrawal → taxable income feedback */
+    const maxIter = working ? 1 : 3;
+    let totalOrdinaryIncome, taxableSS, agi, seniorBonus, taxableIncome;
+    let federalTax, stateTax, niit, marginalRate, totalTax;
     let irmaa = { annual: 0, tier: 'None' };
-    if (age >= 65) {
-      /* Use MAGI from 2 years prior if available, otherwise current year */
-      const lookbackIndex = magiHistory.length - 3; /* 2 years prior */
-      const irmaaMagi = lookbackIndex >= 0 ? magiHistory[lookbackIndex] : agi;
-      const irmaaPeople = isMFJ ? 2 : 1;
-      irmaa = calculateIRMAA(irmaaMagi, filingStatus, year, bracketInflation / 100, irmaaPeople);
-    }
 
-    const totalTax = federalTax + stateTax + irmaa.annual;
-    cumulativeTax += totalTax;
+    for (let iter = 0; iter < maxIter; iter++) {
+      totalOrdinaryIncome = salary + pension + rmd + conversionAmount + fromHSA;
+      taxableSS = calculateTaxableSS(ssIncome, totalOrdinaryIncome, filingStatus);
+      agi = totalOrdinaryIncome + taxableSS;
+      seniorBonus = calculateSeniorBonusDeduction(agi, filingStatus, age, sAge, year);
+      taxableIncome = Math.max(0, agi - stdDed - seniorBonus);
+      federalTax = calculateFederalTax(taxableIncome, brackets);
+      stateTax = taxableIncome * (stateTaxRate / 100);
+      niit = calculateNIIT(agi, netInvestmentIncome, filingStatus);
+      marginalRate = getMarginalBracket(taxableIncome, brackets);
 
-    /* Retirement spending and tax payment.
-       Income sources (RMD, SS, pension) cover spending first.
-       Shortfall drawn from taxable, then Roth, then HSA. */
-    if (!working) {
-      const inflatedSpending = inflateAmount(annualSpending || 0, currentYear, year, inflationRate / 100);
-      /* Available cash from income sources (RMD is distributed as cash, SS & pension too) */
-      const cashIncome = rmd + ssIncome + pension;
-      /* Total cash needed = spending + taxes (taxes must be paid from somewhere) */
-      const totalCashNeed = inflatedSpending + totalTax;
-      let shortfall = Math.max(0, totalCashNeed - cashIncome);
-
-      if (taxPaymentSource === 'conversion' && conversionAmount > 0) {
-        /* When paying tax from conversion, Roth absorbs the tax cost */
-        rothBal -= Math.min(totalTax, rothBal);
-        shortfall = Math.max(0, inflatedSpending - cashIncome);
+      /* IRMAA (computed once — not affected by HSA) */
+      if (iter === 0 && age >= 65) {
+        const lookbackIndex = magiHistory.length - 3;
+        const irmaaMagi = lookbackIndex >= 0 ? magiHistory[lookbackIndex] : agi;
+        const irmaaPeople = isMFJ ? 2 : 1;
+        irmaa = calculateIRMAA(irmaaMagi, filingStatus, year, bracketInflation / 100, irmaaPeople);
       }
 
-      /* Draw shortfall from taxable first, then Roth, then HSA */
-      const fromTaxable = Math.min(shortfall, Math.max(0, taxBal));
+      totalTax = federalTax + stateTax + niit + hsaPenalty + irmaa.annual;
+
+      if (!working) {
+        const inflatedSpending = inflateAmount(annualSpending || 0, currentYear, year, inflationRate / 100);
+        const cashIncome = rmd + ssIncome + pension;
+        let shortfall;
+
+        if (taxPaymentSource === 'conversion' && conversionAmount > 0) {
+          shortfall = Math.max(0, inflatedSpending - cashIncome);
+        } else {
+          shortfall = Math.max(0, inflatedSpending + totalTax - cashIncome);
+        }
+
+        /* Draw shortfall from taxable first, then Roth, then HSA */
+        fromTaxable = Math.min(shortfall, Math.max(0, taxBal));
+        shortfall -= fromTaxable;
+
+        fromRoth = Math.min(shortfall, Math.max(0, rothBal));
+        shortfall -= fromRoth;
+
+        const newFromHSA = Math.min(shortfall, Math.max(0, hsaBal));
+        hsaPenalty = (age < 65 && newFromHSA > 0) ? newFromHSA * 0.20 : 0;
+
+        /* If HSA amount didn't change, we've converged */
+        if (newFromHSA === fromHSA) break;
+        fromHSA = newFromHSA;
+      } else {
+        break;
+      }
+    }
+
+    /* Store MAGI for IRMAA lookback (includes HSA income) */
+    magiHistory.push(agi);
+
+    cumulativeTax += totalTax;
+
+    /* Apply account withdrawals for spending */
+    if (!working) {
+      if (taxPaymentSource === 'conversion' && conversionAmount > 0) {
+        rothBal -= Math.min(totalTax, rothBal);
+      }
       taxBal -= fromTaxable;
-      shortfall -= fromTaxable;
-
-      const fromRoth = Math.min(shortfall, Math.max(0, rothBal));
       rothBal -= fromRoth;
-      shortfall -= fromRoth;
-
-      const fromHSA = Math.min(shortfall, Math.max(0, hsaBal));
       hsaBal -= fromHSA;
     }
 
@@ -937,8 +985,10 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
     results.push({
       year, age, spouseAge: sAge, tradBal, rothBal, taxBal, hsaBal,
       salary, pension, ssIncome, taxableSS, rmd, conversionAmount,
-      agi, seniorBonus, taxableIncome, federalTax, stateTax, irmaaSurcharge: irmaa.annual,
-      irmaaTier: irmaa.tier, totalTax, cumulativeTax, marginalRate,
+      agi, seniorBonus, taxableIncome, federalTax, stateTax,
+      niit, hsaWithdrawal: fromHSA, hsaPenalty,
+      irmaaSurcharge: irmaa.annual, irmaaTier: irmaa.tier,
+      totalTax, cumulativeTax, marginalRate,
       bracketFill,
       totalEstate: tradBal + rothBal + taxBal + hsaBal,
       isConversionYear: conversionAmount > 0,
@@ -1448,6 +1498,8 @@ function SummaryDashboard({ scenarioA, scenarioB, scenarioC, breakevenAge }) {
   const estateDiff = lastB.totalEstate - lastA.totalEstate;
 
   const irmaaYears = scenarioB.filter(y => y.irmaaSurcharge > 0).length;
+  const niitTotal = scenarioB.reduce((sum, y) => sum + (y.niit || 0), 0);
+  const hsaPenaltyTotal = scenarioB.reduce((sum, y) => sum + (y.hsaPenalty || 0), 0);
 
   return React.createElement('div', null,
     React.createElement('div', { className: 'summary-grid' },
@@ -1474,6 +1526,16 @@ function SummaryDashboard({ scenarioA, scenarioB, scenarioC, breakevenAge }) {
         React.createElement('div', { className: 'value red' }, `${irmaaYears} years`),
         React.createElement('div', { className: 'sub' }, 'Conversion triggers Medicare surcharges')
       ),
+      niitTotal > 0 && React.createElement('div', { className: 'summary-card warning' },
+        React.createElement('div', { className: 'label' }, 'Lifetime NIIT'),
+        React.createElement('div', { className: 'value red' }, fmt(niitTotal)),
+        React.createElement('div', { className: 'sub' }, '3.8% surtax on net investment income')
+      ),
+      hsaPenaltyTotal > 0 && React.createElement('div', { className: 'summary-card warning' },
+        React.createElement('div', { className: 'label' }, 'HSA Early Withdrawal Penalties'),
+        React.createElement('div', { className: 'value red' }, fmt(hsaPenaltyTotal)),
+        React.createElement('div', { className: 'sub' }, '20% penalty on non-medical HSA withdrawals before age 65')
+      ),
       lastC && React.createElement('div', { className: 'summary-card neutral' },
         React.createElement('div', { className: 'label' }, 'Custom Strategy Taxes'),
         React.createElement('div', { className: 'value blue' }, fmt(lastC.cumulativeTax)),
@@ -1492,7 +1554,7 @@ function ProjectionTable({ data, label, showReal, inflationRate }) {
       React.createElement('thead', null,
         React.createElement('tr', null,
           ['Year', 'Age', 'Sp.Age', 'Traditional', 'Roth', 'Taxable', 'Conversion', 'RMD',
-           'Taxable Inc.', 'Fed Tax', 'State Tax', 'IRMAA', 'Total Tax', 'Cum. Tax', 'Bracket']
+           'Taxable Inc.', 'Fed Tax', 'State Tax', 'NIIT', 'HSA Wdl', 'HSA Pen.', 'IRMAA', 'Total Tax', 'Cum. Tax', 'Bracket']
           .map(h => React.createElement('th', { key: h }, h))
         )
       ),
@@ -1513,6 +1575,11 @@ function ProjectionTable({ data, label, showReal, inflationRate }) {
             React.createElement('td', null, fmt(deflate(row.taxableIncome, i))),
             React.createElement('td', null, fmt(deflate(row.federalTax, i))),
             React.createElement('td', null, fmt(deflate(row.stateTax, i))),
+            React.createElement('td', null, row.niit > 0 ? fmt(deflate(row.niit, i)) : '-'),
+            React.createElement('td', null, row.hsaWithdrawal > 0 ? fmt(deflate(row.hsaWithdrawal, i)) : '-'),
+            React.createElement('td', null, row.hsaPenalty > 0
+              ? React.createElement('span', { className: 'irmaa-badge' }, fmt(deflate(row.hsaPenalty, i)))
+              : '-'),
             React.createElement('td', null, row.irmaaSurcharge > 0
               ? React.createElement('span', { className: 'irmaa-badge' }, fmt(deflate(row.irmaaSurcharge, i)))
               : '-'),
@@ -1679,12 +1746,13 @@ function KeyAssumptions() {
       React.createElement('li', null, 'RMD divisors: IRS Uniform Lifetime Table III (2022 revision). Joint Life Table II used when spouse is sole beneficiary and 10+ years younger'),
       React.createElement('li', null, 'Social Security taxation: provisional income thresholds ($25K/$34K single, $32K/$44K MFJ) for 0%/50%/85% taxable tiers'),
       React.createElement('li', null, 'IRMAA: 2025 Medicare Part B & D total monthly premiums (based on MAGI from 2 years prior)'),
-      React.createElement('li', null, 'Net Investment Income Tax (NIIT): 3.8% surtax thresholds are defined ($200K single / $250K MFJ) but not yet applied in projections \u2014 a future enhancement'),
+      React.createElement('li', null, 'Net Investment Income Tax (NIIT): 3.8% surtax on the lesser of net investment income or MAGI above threshold ($200K single / $250K MFJ). Thresholds are not inflation-adjusted'),
       React.createElement('li', null, 'Capital gains: 0%/15%/20% brackets for 2025, inflation-adjusted'),
       React.createElement('li', null, 'Social Security COLA: modeled at ~80% of CPI inflation'),
       React.createElement('li', null, 'All brackets and thresholds inflation-adjusted from 2025 base year using the user-specified bracket inflation rate'),
       React.createElement('li', null, 'State tax: 2025 top marginal rates from Tax Foundation; modeled as flat rate on federal taxable income (simplification \u2014 select state, then adjust rate if needed)'),
-      React.createElement('li', null, 'Retirement spending withdrawn from: taxable account first, then Roth, then HSA'),
+      React.createElement('li', null, 'Retirement spending withdrawn from: taxable account first, then Roth, then HSA (last resort)'),
+      React.createElement('li', null, 'HSA withdrawals for spending shortfall are treated as non-medical: taxed as ordinary income at age 65+, taxed as ordinary income plus 20% penalty before age 65'),
       React.createElement('li', null, 'Taxable account withdrawals are modeled without capital gains tax (a simplification \u2014 actual tax depends on cost basis and holding period)'),
       React.createElement('li', null, 'Does not model: ACA subsidy cliffs, state-specific deductions, AMT, estate/inheritance taxes, or required beginning date nuances')
     )
