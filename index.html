@@ -761,12 +761,15 @@ function calculateNIIT(magi, netInvestmentIncome, filingStatus) {
 
 /**
  * Run a complete year-by-year projection.
+ * For MFJ filers, automatically switches to Single filing status the year after
+ * the spouse's age exceeds spouseLifeExpectancy (survivor filing status change).
+ * This affects tax brackets, standard deduction, IRMAA, RMD tables, and spouse SS.
  * @param {Object} inputs - All user inputs
  * @param {string} scenario - 'noConversion', 'optimized', or 'custom'
  * @param {number} customConversion - Fixed annual conversion for 'custom' scenario
  * @param {number} targetBracketRate - Target bracket for optimized scenario
  * @param {string} taxPaymentSource - 'taxable' or 'conversion'
- * @returns {Array} Year-by-year projection data
+ * @returns {Array} Year-by-year projection data (includes filingStatus per year)
  */
 function runProjection(inputs, scenario, customConversion = 0, targetBracketRate = 0.24, taxPaymentSource = 'taxable') {
   /* Coerce all numeric inputs — handles empty-string defaults gracefully */
@@ -774,7 +777,7 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
   const currentAge = n(inputs.currentAge);
   const retirementAge = n(inputs.retirementAge) || currentAge;
   const lifeExpectancy = n(inputs.lifeExpectancy) || 90;
-  const filingStatus = inputs.filingStatus;
+  let filingStatus = inputs.filingStatus;
   const stateTaxRate = n(inputs.stateTaxRate);
   const spouseAge = n(inputs.spouseAge);
   const spouseLifeExpectancy = n(inputs.spouseLifeExpectancy) || 90;
@@ -798,7 +801,8 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
 
   const currentYear = new Date().getFullYear();
   const isRetired = retirementAge <= currentAge;
-  const isMFJ = filingStatus === 'marriedFilingJointly';
+  let isMFJ = filingStatus === 'marriedFilingJointly';
+  const startedAsMFJ = isMFJ;
   const maxAge = Math.max(lifeExpectancy, isMFJ && spouseLifeExpectancy ? spouseLifeExpectancy + (currentAge - (spouseAge || currentAge)) : lifeExpectancy);
 
   let tradBal = traditionalBalance;
@@ -809,11 +813,73 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
   const results = [];
   const magiHistory = []; /* Track MAGI for IRMAA 2-year lookback */
 
+  /* Roth layered tracking for 5-year rule and IRS ordering */
+  let rothContributions = rothBalance; /* Existing balance treated as fully seasoned contributions */
+  let conversionHistory = []; /* Array of { year, remaining } — one per conversion year */
+
+  /**
+   * Withdraw from Roth using IRS ordering rules:
+   * 1. Contributions (always penalty-free)
+   * 2. Conversions in FIFO order (10% penalty if < 5 years AND age < 60)
+   * 3. Earnings (taxable + penalty if age < 60)
+   * Returns { withdrawn, penalty }
+   */
+  function withdrawFromRoth(amount, currentYear, age) {
+    if (amount <= 0) return { withdrawn: 0, penalty: 0 };
+    let remaining = Math.min(amount, rothBal);
+    let totalWithdrawn = 0;
+    let penalty = 0;
+    const penaltyApplies = age < 60; /* Safe simplification of age 59½ */
+
+    /* 1. Draw from contributions first — always penalty-free */
+    const fromContrib = Math.min(remaining, rothContributions);
+    rothContributions -= fromContrib;
+    remaining -= fromContrib;
+    totalWithdrawn += fromContrib;
+
+    /* 2. Draw from conversions in FIFO order */
+    for (let i = 0; i < conversionHistory.length && remaining > 0; i++) {
+      const conv = conversionHistory[i];
+      if (conv.remaining <= 0) continue;
+      const draw = Math.min(remaining, conv.remaining);
+      conv.remaining -= draw;
+      remaining -= draw;
+      totalWithdrawn += draw;
+
+      /* 10% penalty if conversion not yet seasoned (< 5 years) AND under age 60 */
+      if (penaltyApplies && (currentYear - conv.year) < 5) {
+        penalty += draw * 0.10;
+      }
+    }
+
+    /* 3. Draw from earnings (implicit remainder) — penalty if under 60 */
+    if (remaining > 0) {
+      totalWithdrawn += remaining;
+      if (penaltyApplies) {
+        penalty += remaining * 0.10;
+      }
+      remaining = 0;
+    }
+
+    /* Clean up fully depleted conversions */
+    conversionHistory = conversionHistory.filter(c => c.remaining > 0);
+
+    return { withdrawn: totalWithdrawn, penalty };
+  }
+
   for (let yearOffset = 0; yearOffset <= maxAge - currentAge; yearOffset++) {
     const year = currentYear + yearOffset;
     const age = currentAge + yearOffset;
     const sAge = spouseAge ? spouseAge + yearOffset : null;
     const working = !isRetired && age < retirementAge;
+
+    /* Survivor filing status: after the spouse's death year, switch MFJ → Single.
+       Death year (sAge == spouseLifeExpectancy): still file MFJ.
+       Year after death (sAge > spouseLifeExpectancy): file Single. */
+    if (startedAsMFJ && sAge !== null && sAge > spouseLifeExpectancy) {
+      filingStatus = 'single';
+      isMFJ = false;
+    }
 
     /* RMD calculation — must use prior-year-end balance (before this year's growth) */
     const rmd = calculateRMD(age, tradBal, sAge, isMFJ, year);
@@ -832,7 +898,9 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
     /* Pre-retirement contributions */
     if (working && annualContributions) {
       tradBal += annualContributions.traditional || 0;
-      rothBal += annualContributions.roth || 0;
+      const rothContrib = annualContributions.roth || 0;
+      rothBal += rothContrib;
+      rothContributions += rothContrib; /* New contributions are penalty-free basis */
       taxBal += annualContributions.taxable || 0;
       hsaBal += annualContributions.hsa || 0;
     }
@@ -946,6 +1014,11 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
     tradBal = Math.max(0, tradBal);
     rothBal += conversionAmount;
 
+    /* Track conversion in history for 5-year rule */
+    if (conversionAmount > 0) {
+      conversionHistory.push({ year, remaining: conversionAmount });
+    }
+
     /* Calculate total income and taxes.
        HSA non-medical withdrawals are taxable income (+ 20% penalty if under 65).
        We iterate because HSA withdrawal depends on tax, which depends on HSA income. */
@@ -959,6 +1032,12 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
     let hsaPenalty = 0;
     let fromTaxable = 0;
     let fromRoth = 0;
+    let rothPenalty = 0;
+
+    /* Snapshot Roth layers before withdrawals so we can restore across iterations.
+       withdrawFromRoth() mutates rothContributions and conversionHistory in-place. */
+    const savedRothContributions = rothContributions;
+    const savedConversionHistory = conversionHistory.map(c => ({ ...c }));
 
     /* Compute taxes iteratively to account for HSA withdrawal → taxable income feedback */
     const maxIter = working ? 1 : 3;
@@ -967,6 +1046,11 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
     let irmaa = { annual: 0, tier: 'None' };
 
     for (let iter = 0; iter < maxIter; iter++) {
+      /* Restore Roth layers on each iteration (withdrawals are re-computed) */
+      rothContributions = savedRothContributions;
+      conversionHistory = savedConversionHistory.map(c => ({ ...c }));
+      rothPenalty = 0;
+
       totalOrdinaryIncome = salary + pension + rmd + conversionAmount + fromHSA;
       taxableSS = calculateTaxableSS(ssIncome, totalOrdinaryIncome, filingStatus);
       agi = totalOrdinaryIncome + taxableSS;
@@ -998,12 +1082,23 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
           shortfall = Math.max(0, inflatedSpending + totalTax - cashIncome);
         }
 
-        /* Draw shortfall from taxable first, then Roth, then HSA */
+        /* Draw shortfall from taxable first, then Roth (with IRS ordering), then HSA */
         fromTaxable = Math.min(shortfall, Math.max(0, taxBal));
         shortfall -= fromTaxable;
 
-        fromRoth = Math.min(shortfall, Math.max(0, rothBal));
+        const rothResult = withdrawFromRoth(shortfall, year, age);
+        fromRoth = rothResult.withdrawn;
+        rothPenalty = rothResult.penalty;
         shortfall -= fromRoth;
+
+        /* Tax payment from conversion also goes through Roth ordering */
+        if (taxPaymentSource === 'conversion' && conversionAmount > 0) {
+          const taxFromRoth = withdrawFromRoth(Math.min(totalTax + rothPenalty, Math.max(0, rothBal - fromRoth)), year, age);
+          rothPenalty += taxFromRoth.penalty;
+        }
+
+        /* Add Roth early withdrawal penalty to total tax */
+        totalTax += rothPenalty;
 
         const newFromHSA = Math.min(shortfall, Math.max(0, hsaBal));
         hsaPenalty = (age < 65 && newFromHSA > 0) ? newFromHSA * 0.20 : 0;
@@ -1021,10 +1116,13 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
 
     cumulativeTax += totalTax;
 
-    /* Apply account withdrawals for spending */
+    /* Apply account withdrawals for spending.
+       Roth layers were already updated by withdrawFromRoth() in the final iteration.
+       Only update the scalar balances here. */
     if (!working) {
       if (taxPaymentSource === 'conversion' && conversionAmount > 0) {
-        rothBal -= Math.min(totalTax, rothBal);
+        const taxDraw = Math.min(totalTax, rothBal);
+        rothBal -= taxDraw;
       }
       taxBal -= fromTaxable;
       rothBal -= fromRoth;
@@ -1040,10 +1138,10 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
     const bracketFill = getBracketFill(taxableIncome, brackets);
 
     results.push({
-      year, age, spouseAge: sAge, tradBal, rothBal, taxBal, hsaBal,
+      year, age, spouseAge: sAge, filingStatus, tradBal, rothBal, taxBal, hsaBal,
       salary, pension, ssIncome, taxableSS, rmd, conversionAmount,
       agi, seniorBonus, taxableIncome, federalTax, stateTax,
-      niit, hsaWithdrawal: fromHSA, hsaPenalty,
+      niit, hsaWithdrawal: fromHSA, hsaPenalty, rothPenalty,
       irmaaSurcharge: irmaa.annual, irmaaTier: irmaa.tier,
       totalTax, cumulativeTax, marginalRate,
       bracketFill,
@@ -1557,6 +1655,7 @@ function SummaryDashboard({ scenarioA, scenarioB, scenarioC, breakevenAge }) {
   const irmaaYears = scenarioB.filter(y => y.irmaaSurcharge > 0).length;
   const niitTotal = scenarioB.reduce((sum, y) => sum + (y.niit || 0), 0);
   const hsaPenaltyTotal = scenarioB.reduce((sum, y) => sum + (y.hsaPenalty || 0), 0);
+  const rothPenaltyTotal = scenarioB.reduce((sum, y) => sum + (y.rothPenalty || 0), 0);
 
   return React.createElement('div', null,
     React.createElement('div', { className: 'summary-grid' },
@@ -1593,6 +1692,11 @@ function SummaryDashboard({ scenarioA, scenarioB, scenarioC, breakevenAge }) {
         React.createElement('div', { className: 'value red' }, fmt(hsaPenaltyTotal)),
         React.createElement('div', { className: 'sub' }, '20% penalty on non-medical HSA withdrawals before age 65')
       ),
+      rothPenaltyTotal > 0 && React.createElement('div', { className: 'summary-card warning' },
+        React.createElement('div', { className: 'label' }, 'Roth Early Withdrawal Penalties'),
+        React.createElement('div', { className: 'value red' }, fmt(rothPenaltyTotal)),
+        React.createElement('div', { className: 'sub' }, '10% penalty on unseasoned Roth conversions withdrawn before age 59\u00BD')
+      ),
       lastC && React.createElement('div', { className: 'summary-card neutral' },
         React.createElement('div', { className: 'label' }, 'Custom Strategy Taxes'),
         React.createElement('div', { className: 'value blue' }, fmt(lastC.cumulativeTax)),
@@ -1611,7 +1715,7 @@ function ProjectionTable({ data, label, showReal, inflationRate }) {
       React.createElement('thead', null,
         React.createElement('tr', null,
           ['Year', 'Age', 'Sp.Age', 'Traditional', 'Roth', 'Taxable', 'Conversion', 'RMD',
-           'Taxable Inc.', 'Fed Tax', 'State Tax', 'NIIT', 'HSA Wdl', 'HSA Pen.', 'IRMAA', 'Total Tax', 'Cum. Tax', 'Bracket']
+           'Taxable Inc.', 'Fed Tax', 'State Tax', 'NIIT', 'HSA Wdl', 'HSA Pen.', 'Roth Pen.', 'IRMAA', 'Total Tax', 'Cum. Tax', 'Bracket']
           .map(h => React.createElement('th', { key: h }, h))
         )
       ),
@@ -1636,6 +1740,9 @@ function ProjectionTable({ data, label, showReal, inflationRate }) {
             React.createElement('td', null, row.hsaWithdrawal > 0 ? fmt(deflate(row.hsaWithdrawal, i)) : '-'),
             React.createElement('td', null, row.hsaPenalty > 0
               ? React.createElement('span', { className: 'irmaa-badge' }, fmt(deflate(row.hsaPenalty, i)))
+              : '-'),
+            React.createElement('td', null, row.rothPenalty > 0
+              ? React.createElement('span', { className: 'irmaa-badge' }, fmt(deflate(row.rothPenalty, i)))
               : '-'),
             React.createElement('td', null, row.irmaaSurcharge > 0
               ? React.createElement('span', { className: 'irmaa-badge' }, fmt(deflate(row.irmaaSurcharge, i)))
@@ -1811,6 +1918,8 @@ function KeyAssumptions() {
       React.createElement('li', null, 'Retirement spending withdrawn from: taxable account first, then Roth, then HSA (last resort)'),
       React.createElement('li', null, 'HSA withdrawals for spending shortfall are treated as non-medical: taxed as ordinary income at age 65+, taxed as ordinary income plus 20% penalty before age 65'),
       React.createElement('li', null, 'Taxable account withdrawals are modeled without capital gains tax (a simplification \u2014 actual tax depends on cost basis and holding period)'),
+      React.createElement('li', null, 'Survivor filing status: when the spouse\u2019s life expectancy is reached, the model switches filing status from Married Filing Jointly to Single for all subsequent years. The IRS Qualifying Surviving Spouse status (which preserves MFJ brackets for up to 2 years after death) is not modeled because it requires a qualifying dependent child \u2014 a condition that typically does not apply to retired couples. Spouse Social Security income, IRMAA dual premiums, and joint life table RMD calculations also cease after death'),
+      React.createElement('li', null, 'Limitation: the model does not handle the primary filer dying before the spouse. Life expectancy inputs should be set so the primary filer outlives the spouse, or use Single filing status for single-life projections'),
       React.createElement('li', null, 'Does not model: ACA subsidy cliffs, state-specific deductions, AMT, estate/inheritance taxes, or required beginning date nuances')
     )
   );
