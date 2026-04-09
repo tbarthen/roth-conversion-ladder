@@ -179,6 +179,11 @@ h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bot
 .data-table tbody tr:hover { background: #f0fdfa; }
 .data-table th[title] { cursor: help; text-decoration: underline dotted rgba(255,255,255,0.5); text-underline-offset: 3px; }
 .table-footnote { font-size: 0.78rem; color: var(--text-muted, #666); line-height: 1.5; margin-top: 12px; padding: 10px 12px; background: #f8fafb; border-left: 3px solid var(--accent-teal-dark, #0d9488); border-radius: 4px; }
+.schedule-card { background: #f0fdfa; border: 1px solid #99f6e4; border-left: 4px solid var(--accent-teal-dark, #0d9488); }
+.schedule-card h3 { margin: 0 0 10px 0; font-size: 1.05rem; color: var(--accent-teal-dark, #0d9488); }
+.schedule-card .data-table { font-size: 0.85rem; }
+.schedule-card .data-table th { background: var(--accent-teal-dark, #0d9488); }
+.schedule-summary { font-size: 0.88rem; color: #134e4a; line-height: 1.5; margin-top: 12px; padding: 10px 12px; background: white; border-radius: 4px; font-weight: 500; }
 
 /* Tabs */
 .tabs { display: flex; gap: 4px; margin-bottom: 20px; flex-wrap: wrap; }
@@ -1922,6 +1927,93 @@ function ProjectionTable({ data, label, showReal, inflationRate }) {
   );
 }
 
+/* ---- Conversion Schedule Summary Panel ---- */
+function ConversionSchedule({ data, scenarioLabel, showReal, inflationRate }) {
+  const deflate = (val, yearOffset) => showReal ? val / Math.pow(1 + inflationRate / 100, yearOffset) : val;
+
+  // Collect conversion years with nominal running totals, preserving original index for deflation
+  const conversionRows = [];
+  let cumConvertedNominal = 0;
+  data.forEach((row, i) => {
+    if (row.conversionAmount > 0) {
+      cumConvertedNominal += row.conversionAmount;
+      conversionRows.push({
+        year: row.year,
+        age: row.age,
+        conversionAmount: row.conversionAmount,
+        totalTax: row.totalTax,
+        tradBal: row.tradBal,
+        cumConverted: cumConvertedNominal,
+        origIdx: i
+      });
+    }
+  });
+
+  if (conversionRows.length === 0) {
+    return React.createElement('div', { className: 'card schedule-card' },
+      React.createElement('h3', null, 'Your Conversion Schedule'),
+      React.createElement('p', { style: { margin: 0, fontSize: '0.9rem' } },
+        'No Roth conversions are recommended in this scenario.')
+    );
+  }
+
+  // Summary metrics
+  const totalConvertedNominal = cumConvertedNominal;
+  const totalTaxCostNominal = conversionRows.reduce((sum, r) => sum + r.totalTax, 0);
+  const startYear = conversionRows[0].year;
+  const endYear = conversionRows[conversionRows.length - 1].year;
+  const nYears = conversionRows.length;
+  const lastIdx = conversionRows[conversionRows.length - 1].origIdx;
+
+  // Deflate summary totals consistently with how the table's last row is displayed
+  const totalConvertedDisp = deflate(totalConvertedNominal, lastIdx);
+  const totalTaxCostDisp = deflate(totalTaxCostNominal, lastIdx);
+
+  // Find first year Traditional balance effectively reaches zero
+  const zeroRow = data.find(r => r.tradBal < 1);
+  const zeroText = zeroRow
+    ? 'Traditional balance reaches $0 by ' + zeroRow.year + '.'
+    : 'Traditional balance does not reach $0 during the projection.';
+
+  const yearRange = startYear === endYear ? String(startYear) : (startYear + '\u2013' + endYear);
+  const summaryLine = 'Convert ' + fmt(totalConvertedDisp) + ' over ' + nYears +
+    ' year' + (nYears === 1 ? '' : 's') + ' (' + yearRange + '). ' + zeroText +
+    ' Estimated total tax cost during conversion years: ' + fmt(totalTaxCostDisp) + '.';
+
+  const columns = [
+    { name: 'Year', tip: 'Calendar year of the conversion' },
+    { name: 'Age', tip: 'Your age at year-end' },
+    { name: 'Convert', tip: 'Gross amount converted from Traditional to Roth this year' },
+    { name: 'Tax Cost', tip: 'Total tax for this year (Fed + State + CG + NIIT + penalties + IRMAA). Note: this includes taxes on all income for the year, not just the conversion itself' },
+    { name: 'Cumulative Converted', tip: 'Running total of all conversions from the start of the projection through this year' },
+    { name: 'Trad. Bal. After', tip: 'Traditional account balance at end of year, showing how much remains to be converted or withdrawn as RMDs' }
+  ];
+
+  return React.createElement('div', { className: 'card schedule-card' },
+    React.createElement('h3', null, 'Your Conversion Schedule' + (scenarioLabel ? ' (' + scenarioLabel + ')' : '')),
+    React.createElement('div', { className: 'table-container' },
+      React.createElement('table', { className: 'data-table' },
+        React.createElement('thead', null,
+          React.createElement('tr', null,
+            columns.map(c => React.createElement('th', { key: c.name, title: c.tip }, c.name))
+          )
+        ),
+        React.createElement('tbody', null,
+          conversionRows.map(r => React.createElement('tr', { key: r.year },
+            React.createElement('td', null, r.year),
+            React.createElement('td', null, r.age),
+            React.createElement('td', null, fmt(deflate(r.conversionAmount, r.origIdx))),
+            React.createElement('td', null, fmt(deflate(r.totalTax, r.origIdx))),
+            React.createElement('td', { style: { fontWeight: 600 } }, fmt(deflate(r.cumConverted, r.origIdx))),
+            React.createElement('td', null, fmt(deflate(r.tradBal, r.origIdx)))
+          ))
+        )
+      )
+    ),
+    React.createElement('p', { className: 'schedule-summary' }, summaryLine)
+  );
+}
+
 /* ---- Charts ---- */
 function Charts({ scenarioA, scenarioB, scenarioC }) {
   const cumulativeData = scenarioA.map((a, i) => ({
@@ -2339,22 +2431,36 @@ function App() {
           })
         ),
 
-        activeTab === 'tableB' && React.createElement('div', { className: 'card' },
-          React.createElement('h2', null, 'Scenario B: Optimized Roth Conversions'),
-          React.createElement(ProjectionTable, {
+        activeTab === 'tableB' && React.createElement(React.Fragment, null,
+          React.createElement(ConversionSchedule, {
             data: results.scenarioB,
-            label: 'Optimized',
+            scenarioLabel: 'Optimized',
             showReal, inflationRate: inputs.inflationRate
-          })
+          }),
+          React.createElement('div', { className: 'card' },
+            React.createElement('h2', null, 'Scenario B: Optimized Roth Conversions'),
+            React.createElement(ProjectionTable, {
+              data: results.scenarioB,
+              label: 'Optimized',
+              showReal, inflationRate: inputs.inflationRate
+            })
+          )
         ),
 
-        activeTab === 'tableC' && results.scenarioC && React.createElement('div', { className: 'card' },
-          React.createElement('h2', null, 'Scenario C: Custom Fixed Conversions'),
-          React.createElement(ProjectionTable, {
+        activeTab === 'tableC' && results.scenarioC && React.createElement(React.Fragment, null,
+          React.createElement(ConversionSchedule, {
             data: results.scenarioC,
-            label: 'Custom',
+            scenarioLabel: 'Custom',
             showReal, inflationRate: inputs.inflationRate
-          })
+          }),
+          React.createElement('div', { className: 'card' },
+            React.createElement('h2', null, 'Scenario C: Custom Fixed Conversions'),
+            React.createElement(ProjectionTable, {
+              data: results.scenarioC,
+              label: 'Custom',
+              showReal, inflationRate: inputs.inflationRate
+            })
+          )
         ),
 
         activeTab === 'assumptions' && React.createElement('div', { className: 'card' },
