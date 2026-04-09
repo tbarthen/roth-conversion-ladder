@@ -177,6 +177,8 @@ h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bot
 .data-table tr.irmaa-flag { position: relative; }
 .data-table tr.irmaa-flag td:last-child { color: var(--accent-red); font-weight: 600; }
 .data-table tbody tr:hover { background: #f0fdfa; }
+.data-table th[title] { cursor: help; text-decoration: underline dotted rgba(255,255,255,0.5); text-underline-offset: 3px; }
+.table-footnote { font-size: 0.78rem; color: var(--text-muted, #666); line-height: 1.5; margin-top: 12px; padding: 10px 12px; background: #f8fafb; border-left: 3px solid var(--accent-teal-dark, #0d9488); border-radius: 4px; }
 
 /* Tabs */
 .tabs { display: flex; gap: 4px; margin-bottom: 20px; flex-wrap: wrap; }
@@ -1840,14 +1842,42 @@ function SummaryDashboard({ scenarioA, scenarioB, scenarioC, breakevenAge }) {
 /* ---- Year-by-Year Table ---- */
 function ProjectionTable({ data, label, showReal, inflationRate }) {
   const deflate = (val, yearOffset) => showReal ? val / Math.pow(1 + inflationRate / 100, yearOffset) : val;
+  const startYear = data.length > 0 ? data[0].year : new Date().getFullYear();
+  const dollarsNote = showReal ? "today's dollars" : 'nominal (future) dollars';
+
+  const columns = [
+    { name: 'Year', tip: 'Calendar year of the projection' },
+    { name: 'Age', tip: 'Your age at year-end' },
+    { name: 'Sp.Age', tip: "Spouse's age at year-end" },
+    { name: 'Trad. Bal.', tip: 'Traditional IRA/401(k) balance at year-end, after growth, RMDs, conversions, and withdrawals' },
+    { name: 'Roth Bal.', tip: 'Roth IRA balance at year-end, after growth, conversions, tax payments (if paid from converted amount), and withdrawals' },
+    { name: 'Taxable Bal.', tip: 'Taxable brokerage account balance at year-end, after growth, dividends, capital gains, tax payments, and spending withdrawals' },
+    { name: 'Conversion', tip: 'Gross amount converted from Traditional to Roth this year. When tax is paid from the converted amount, this still shows the gross; the tax reduces the Roth balance' },
+    { name: 'RMD', tip: 'Required Minimum Distribution from Traditional accounts. In years with both an RMD and a Conversion, they are additive — total withdrawn from Traditional = RMD + Conversion' },
+    { name: 'Dividends', tip: 'Dividend distributions from the taxable brokerage account, based on the dividend yield assumption' },
+    { name: 'Cap Gains', tip: 'Realized capital gains from taxable account withdrawals, calculated using the cost-basis ratio' },
+    { name: 'Fed Taxable Inc.', tip: 'Federal taxable income after the standard deduction. Includes salary, pension, RMDs, conversions, and taxable Social Security. Capital gains and dividends are taxed separately and not included here' },
+    { name: 'Fed Tax', tip: 'Federal income tax on ordinary income (does not include capital gains tax or NIIT)' },
+    { name: 'State Tax', tip: 'State income tax based on your selected state' },
+    { name: 'CG Tax', tip: 'Federal tax on long-term capital gains and qualified dividends' },
+    { name: 'NIIT', tip: 'Net Investment Income Tax (3.8%) on investment income when MAGI exceeds the threshold' },
+    { name: 'HSA Wdl', tip: 'Withdrawal from HSA to cover spending shortfalls' },
+    { name: 'HSA Pen.', tip: 'Penalty on HSA withdrawals before age 65 (20% penalty on non-medical withdrawals)' },
+    { name: 'Roth Pen.', tip: 'Early Roth withdrawal penalty — 10% on earnings withdrawn before age 59½ or before the 5-year holding period is met' },
+    { name: 'IRMAA', tip: 'Medicare IRMAA surcharge (Parts B + D). Based on MAGI from 2 years prior. Applies at age 65+' },
+    { name: 'Total Tax', tip: 'Sum of all taxes and penalties for this year: Fed Tax + State Tax + CG Tax + NIIT + HSA Pen. + Roth Pen. + IRMAA' },
+    { name: 'Cum. Tax (from ' + startYear + ')', tip: 'Cumulative total of all taxes and penalties paid from ' + startYear + ' through this year' },
+    { name: 'Marg. Bracket', tip: 'Marginal federal tax bracket — the rate applied to the last dollar of ordinary taxable income this year' }
+  ];
+
+  const footnoteText = 'This table shows a year-by-year projection of the ' + label.toLowerCase() +
+    ' Roth conversion strategy. Account balances (Trad.\u00A0Bal., Roth\u00A0Bal., Taxable\u00A0Bal.) are end-of-year values after all growth, conversions, taxes, and spending withdrawals have been applied. In years where both an RMD and a Conversion appear, they are additive\u00A0\u2014\u00A0the total withdrawn from Traditional is RMD\u00A0+\u00A0Conversion. Fed\u00A0Taxable\u00A0Inc. is federal taxable income after the standard deduction; capital gains and dividends are taxed separately and not included. IRMAA surcharges reflect a 2-year lookback on MAGI. All amounts are in ' + dollarsNote + '.';
 
   return React.createElement('div', { className: 'table-container' },
     React.createElement('table', { className: 'data-table' },
       React.createElement('thead', null,
         React.createElement('tr', null,
-          ['Year', 'Age', 'Sp.Age', 'Traditional', 'Roth', 'Taxable', 'Conversion', 'RMD',
-           'Dividends', 'Cap Gains', 'Taxable Inc.', 'Fed Tax', 'State Tax', 'CG Tax', 'NIIT', 'HSA Wdl', 'HSA Pen.', 'Roth Pen.', 'IRMAA', 'Total Tax', 'Cum. Tax', 'Bracket']
-          .map(h => React.createElement('th', { key: h }, h))
+          columns.map(c => React.createElement('th', { key: c.name, title: c.tip }, c.name))
         )
       ),
       React.createElement('tbody', null,
@@ -1887,7 +1917,8 @@ function ProjectionTable({ data, label, showReal, inflationRate }) {
           );
         })
       )
-    )
+    ),
+    React.createElement('p', { className: 'table-footnote' }, footnoteText)
   );
 }
 
@@ -2204,17 +2235,23 @@ function App() {
     setCalculating(true);
     /* Use setTimeout to allow UI to show loading state */
     setTimeout(() => {
-      const targetRate = parseFloat(inputs.targetBracket);
-      const scenarioA = runProjection(inputs, 'noConversion', 0, targetRate, inputs.taxPaymentSource);
-      const scenarioB = runProjection(inputs, 'optimized', 0, targetRate, inputs.taxPaymentSource);
-      const scenarioC = inputs.customConversion > 0
-        ? runProjection(inputs, 'custom', inputs.customConversion, targetRate, inputs.taxPaymentSource)
-        : null;
-      const breakevenAge = findBreakevenAge(scenarioA, scenarioB);
+      try {
+        const targetRate = parseFloat(inputs.targetBracket);
+        const scenarioA = runProjection(inputs, 'noConversion', 0, targetRate, inputs.taxPaymentSource);
+        const scenarioB = runProjection(inputs, 'optimized', 0, targetRate, inputs.taxPaymentSource);
+        const scenarioC = inputs.customConversion > 0
+          ? runProjection(inputs, 'custom', inputs.customConversion, targetRate, inputs.taxPaymentSource)
+          : null;
+        const breakevenAge = findBreakevenAge(scenarioA, scenarioB);
 
-      setResults({ scenarioA, scenarioB, scenarioC, breakevenAge });
-      setCalculating(false);
-      setActiveTab('summary');
+        setResults({ scenarioA, scenarioB, scenarioC, breakevenAge });
+        setActiveTab('summary');
+      } catch (err) {
+        console.error('Projection failed:', err);
+        alert('Calculation error — please check your inputs and try again.\n\n' + err.message);
+      } finally {
+        setCalculating(false);
+      }
     }, 50);
   }, [inputs]);
 
