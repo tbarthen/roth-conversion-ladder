@@ -1145,6 +1145,8 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
     let fromRoth = 0;
     let rothPenalty = 0;
 
+    const spendingTarget = working ? 0 : inflateAmount(annualSpending || 0, currentYear, year, inflationRate / 100);
+
     /* Snapshot Roth layers before withdrawals so we can restore across iterations.
        withdrawFromRoth() mutates rothContributions and conversionHistory in-place. */
     const savedRothContributions = rothContributions;
@@ -1196,14 +1198,13 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
       totalTax = federalTax + stateTax + capGainsTax + niit + hsaPenalty + irmaa.annual;
 
       if (!working) {
-        const inflatedSpending = inflateAmount(annualSpending || 0, currentYear, year, inflationRate / 100);
         const cashIncome = rmd + ssIncome + pension;
         let shortfall;
 
         if (taxPaymentSource === 'conversion' && conversionAmount > 0) {
-          shortfall = Math.max(0, inflatedSpending - cashIncome);
+          shortfall = Math.max(0, spendingTarget - cashIncome);
         } else {
-          shortfall = Math.max(0, inflatedSpending + totalTax - cashIncome);
+          shortfall = Math.max(0, spendingTarget + totalTax - cashIncome);
         }
 
         /* Step 4-5: Draw shortfall from taxable first, compute realized gains */
@@ -1282,6 +1283,7 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
       niit, hsaWithdrawal: fromHSA, hsaPenalty, rothPenalty,
       irmaaSurcharge: irmaa.annual, irmaaTier: irmaa.tier,
       totalTax, cumulativeTax, marginalRate,
+      spendingTarget,
       bracketFill,
       totalEstate: tradBal + rothBal + taxBal + hsaBal,
       isConversionYear: conversionAmount > 0,
@@ -2150,6 +2152,18 @@ function Charts({ scenarioA, scenarioB, scenarioC }) {
     ...(scenarioC ? { custom: effectiveRate(scenarioC[i]) } : {})
   }));
 
+  const retirementCostData = scenarioA.map((a, i) => ({
+    age: a.age,
+    spendA: Math.round(a.spendingTarget || 0),
+    taxA: Math.round(a.totalTax),
+    spendB: Math.round(scenarioB[i]?.spendingTarget || 0),
+    taxB: Math.round(scenarioB[i]?.totalTax || 0),
+    ...(scenarioC ? {
+      spendC: Math.round(scenarioC[i]?.spendingTarget || 0),
+      taxC: Math.round(scenarioC[i]?.totalTax || 0)
+    } : {})
+  }));
+
   const chartMargin = { top: 5, right: 20, bottom: 5, left: 20 };
   const tooltipFormatter = (value) => fmt(value);
   const pctTooltipFormatter = (value) => value == null ? '-' : `${value.toFixed(1)}%`;
@@ -2232,6 +2246,24 @@ function Charts({ scenarioA, scenarioB, scenarioC }) {
           React.createElement(Line, { type: 'monotone', dataKey: 'noConversion', stroke: '#ea580c', strokeWidth: 2, name: 'No Conversion', dot: false }),
           React.createElement(Line, { type: 'monotone', dataKey: 'optimized', stroke: '#0d9488', strokeWidth: 2, name: 'Optimized', dot: false }),
           scenarioC && React.createElement(Line, { type: 'monotone', dataKey: 'custom', stroke: '#7c3aed', strokeWidth: 2, name: 'Custom', dot: false })
+        )
+      )
+    },
+    {
+      title: 'Total Cost of Retirement (Spending + Taxes)',
+      body: () => React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+        React.createElement(BarChart, { data: retirementCostData, margin: chartMargin },
+          React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#e2e8f0' }),
+          React.createElement(XAxis, { dataKey: 'age', tick: { fontSize: 11 } }),
+          React.createElement(YAxis, { tickFormatter: v => `$${(v/1000).toFixed(0)}k`, tick: { fontSize: 11 } }),
+          React.createElement(Tooltip, { formatter: tooltipFormatter }),
+          React.createElement(Legend, null),
+          React.createElement(Bar, { dataKey: 'spendA', stackId: 'noConv', fill: '#fed7aa', name: 'No Conv. Spending' }),
+          React.createElement(Bar, { dataKey: 'taxA', stackId: 'noConv', fill: '#ea580c', name: 'No Conv. Tax' }),
+          React.createElement(Bar, { dataKey: 'spendB', stackId: 'opt', fill: '#99f6e4', name: 'Optimized Spending' }),
+          React.createElement(Bar, { dataKey: 'taxB', stackId: 'opt', fill: '#0d9488', name: 'Optimized Tax' }),
+          scenarioC && React.createElement(Bar, { dataKey: 'spendC', stackId: 'cust', fill: '#ddd6fe', name: 'Custom Spending' }),
+          scenarioC && React.createElement(Bar, { dataKey: 'taxC', stackId: 'cust', fill: '#7c3aed', name: 'Custom Tax' })
         )
       )
     }
