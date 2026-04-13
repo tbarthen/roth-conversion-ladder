@@ -1362,6 +1362,11 @@ const fmt = (n) => {
 const fmtPct = (n) => `${(n * 100).toFixed(0)}%`;
 const fmtRate = (n) => `${n.toFixed(1)}%`;
 
+/* Build a deflator closure for converting nominal year-offset dollars back
+ * to today's purchasing power. When showReal is false, returns value as-is. */
+const makeDeflate = (showReal, inflationRate) => (val, yearOffset) =>
+  showReal ? val / Math.pow(1 + (inflationRate || 0) / 100, yearOffset) : val;
+
 /* Effective tax rate = all taxes / AGI. Near-zero AGI years return 0%
  * rather than a ratio — small incidental taxes (IRMAA, capital gains)
  * on negligible income are not meaningful "effective tax rates". */
@@ -2135,23 +2140,31 @@ function InputForm({ inputs, setInputs, onCalculate, ratesFallback, hasSavedProf
 }
 
 /* ---- Summary Dashboard ---- */
-function SummaryDashboard({ scenarioA, scenarioB, scenarioC, breakevenAge }) {
+function SummaryDashboard({ scenarioA, scenarioB, scenarioC, breakevenAge, showReal, inflationRate }) {
   if (!scenarioA?.length || !scenarioB?.length) {
     return React.createElement('div', { className: 'card', style: { textAlign: 'center', padding: 40, color: 'var(--text-muted)' } },
       'Unable to generate projection with these inputs. Please check your age, spending, and account balances.');
   }
-  const lastA = scenarioA[scenarioA.length - 1];
-  const lastB = scenarioB[scenarioB.length - 1];
+  const deflate = makeDeflate(showReal, inflationRate);
+  const lastIdxA = scenarioA.length - 1;
+  const lastIdxB = scenarioB.length - 1;
+  const lastA = scenarioA[lastIdxA];
+  const lastB = scenarioB[lastIdxB];
   const lastC = scenarioC ? scenarioC[scenarioC.length - 1] : null;
+  const lastIdxC = scenarioC ? scenarioC.length - 1 : 0;
 
-  const taxSavings = lastA.cumulativeTax - lastB.cumulativeTax;
-  const estateDiff = lastB.totalEstate - lastA.totalEstate;
+  const lastACumTax = deflate(lastA.cumulativeTax, lastIdxA);
+  const lastBCumTax = deflate(lastB.cumulativeTax, lastIdxB);
+  const lastAEstate = deflate(lastA.totalEstate, lastIdxA);
+  const lastBEstate = deflate(lastB.totalEstate, lastIdxB);
+  const taxSavings = lastACumTax - lastBCumTax;
+  const estateDiff = lastBEstate - lastAEstate;
 
   const irmaaYears = scenarioB.filter(y => y.irmaaSurcharge > 0).length;
-  const capGainsTaxTotal = scenarioB.reduce((sum, y) => sum + (y.capGainsTax || 0), 0);
-  const niitTotal = scenarioB.reduce((sum, y) => sum + (y.niit || 0), 0);
-  const hsaPenaltyTotal = scenarioB.reduce((sum, y) => sum + (y.hsaPenalty || 0), 0);
-  const rothPenaltyTotal = scenarioB.reduce((sum, y) => sum + (y.rothPenalty || 0), 0);
+  const capGainsTaxTotal = scenarioB.reduce((sum, y, i) => sum + deflate(y.capGainsTax || 0, i), 0);
+  const niitTotal = scenarioB.reduce((sum, y, i) => sum + deflate(y.niit || 0, i), 0);
+  const hsaPenaltyTotal = scenarioB.reduce((sum, y, i) => sum + deflate(y.hsaPenalty || 0, i), 0);
+  const rothPenaltyTotal = scenarioB.reduce((sum, y, i) => sum + deflate(y.rothPenalty || 0, i), 0);
 
   return React.createElement('div', null,
     React.createElement('div', { className: 'summary-grid' },
@@ -2159,13 +2172,13 @@ function SummaryDashboard({ scenarioA, scenarioB, scenarioC, breakevenAge }) {
         React.createElement('div', { className: 'label' }, 'Lifetime Tax Savings'),
         React.createElement('div', { className: `value ${taxSavings > 0 ? 'green' : 'red'}` }, fmt(taxSavings)),
         React.createElement('div', { className: 'sub' },
-          `No Conversion: ${fmt(lastA.cumulativeTax)} vs Optimized: ${fmt(lastB.cumulativeTax)}`)
+          `No Conversion: ${fmt(lastACumTax)} vs Optimized: ${fmt(lastBCumTax)}`)
       ),
       React.createElement('div', { className: `summary-card ${estateDiff > 0 ? 'positive' : 'neutral'}` },
         React.createElement('div', { className: 'label' }, 'Estate Value Advantage'),
         React.createElement('div', { className: `value ${estateDiff > 0 ? 'green' : 'orange'}` }, fmt(estateDiff)),
         React.createElement('div', { className: 'sub' },
-          `No Conversion: ${fmt(lastA.totalEstate)} vs Optimized: ${fmt(lastB.totalEstate)}`)
+          `No Conversion: ${fmt(lastAEstate)} vs Optimized: ${fmt(lastBEstate)}`)
       ),
       React.createElement('div', { className: 'summary-card neutral' },
         React.createElement('div', { className: 'label' }, 'Breakeven Age'),
@@ -2200,8 +2213,8 @@ function SummaryDashboard({ scenarioA, scenarioB, scenarioC, breakevenAge }) {
       ),
       lastC && React.createElement('div', { className: 'summary-card neutral' },
         React.createElement('div', { className: 'label' }, 'Custom Strategy Taxes'),
-        React.createElement('div', { className: 'value blue' }, fmt(lastC.cumulativeTax)),
-        React.createElement('div', { className: 'sub' }, `Estate: ${fmt(lastC.totalEstate)}`)
+        React.createElement('div', { className: 'value blue' }, fmt(deflate(lastC.cumulativeTax, lastIdxC))),
+        React.createElement('div', { className: 'sub' }, `Estate: ${fmt(deflate(lastC.totalEstate, lastIdxC))}`)
       )
     ),
     rothPenaltyTotal > 0 && React.createElement('div', {
@@ -2221,7 +2234,7 @@ function SummaryDashboard({ scenarioA, scenarioB, scenarioC, breakevenAge }) {
 
 /* ---- Year-by-Year Table ---- */
 function ProjectionTable({ data, label, showReal, inflationRate }) {
-  const deflate = (val, yearOffset) => showReal ? val / Math.pow(1 + inflationRate / 100, yearOffset) : val;
+  const deflate = makeDeflate(showReal, inflationRate);
   const startYear = data.length > 0 ? data[0].year : new Date().getFullYear();
   const dollarsNote = showReal ? "today's dollars" : 'nominal (future) dollars';
 
@@ -2307,7 +2320,7 @@ function ProjectionTable({ data, label, showReal, inflationRate }) {
 
 /* ---- Conversion Schedule Summary Panel ---- */
 function ConversionSchedule({ data, scenarioLabel, showReal, inflationRate }) {
-  const deflate = (val, yearOffset) => showReal ? val / Math.pow(1 + inflationRate / 100, yearOffset) : val;
+  const deflate = makeDeflate(showReal, inflationRate);
 
   // Collect conversion years with nominal running totals, preserving original index for deflation
   const conversionRows = [];
@@ -2427,30 +2440,31 @@ function ChartOverlay({ title, caption, controls, onClose, children }) {
 }
 
 /* ---- Charts ---- */
-function Charts({ scenarioA, scenarioB, scenarioC }) {
+function Charts({ scenarioA, scenarioB, scenarioC, showReal, inflationRate }) {
   const [expandedIdx, setExpandedIdx] = useState(null);
   const [costChartScenario, setCostChartScenario] = useState('optimized');
+  const deflate = makeDeflate(showReal, inflationRate);
 
   const cumulativeData = scenarioA.map((a, i) => ({
     age: a.age,
-    noConversion: Math.round(a.cumulativeTax),
-    optimized: Math.round(scenarioB[i]?.cumulativeTax || 0),
-    ...(scenarioC ? { custom: Math.round(scenarioC[i]?.cumulativeTax || 0) } : {})
+    noConversion: Math.round(deflate(a.cumulativeTax, i)),
+    optimized: Math.round(deflate(scenarioB[i]?.cumulativeTax || 0, i)),
+    ...(scenarioC ? { custom: Math.round(deflate(scenarioC[i]?.cumulativeTax || 0, i)) } : {})
   }));
 
-  const balanceDataB = scenarioB.map(row => ({
+  const balanceDataB = scenarioB.map((row, i) => ({
     age: row.age,
-    Traditional: Math.round(row.tradBal),
-    Roth: Math.round(row.rothBal),
-    Taxable: Math.round(row.taxBal),
-    HSA: Math.round(row.hsaBal)
+    Traditional: Math.round(deflate(row.tradBal, i)),
+    Roth: Math.round(deflate(row.rothBal, i)),
+    Taxable: Math.round(deflate(row.taxBal, i)),
+    HSA: Math.round(deflate(row.hsaBal, i))
   }));
 
   const annualTaxData = scenarioA.map((a, i) => ({
     age: a.age,
-    noConversion: Math.round(a.totalTax),
-    optimized: Math.round(scenarioB[i]?.totalTax || 0),
-    ...(scenarioC ? { custom: Math.round(scenarioC[i]?.totalTax || 0) } : {})
+    noConversion: Math.round(deflate(a.totalTax, i)),
+    optimized: Math.round(deflate(scenarioB[i]?.totalTax || 0, i)),
+    ...(scenarioC ? { custom: Math.round(deflate(scenarioC[i]?.totalTax || 0, i)) } : {})
   }));
 
   const bracketData = scenarioB.map(row => ({
@@ -2461,7 +2475,7 @@ function Charts({ scenarioA, scenarioB, scenarioC }) {
     (row.bracketFill || []).forEach(bf => {
       const key = `rate${Math.round(bf.rate * 100)}`;
       if (bracketData[i][key] !== undefined) {
-        bracketData[i][key] = Math.round(bf.filled);
+        bracketData[i][key] = Math.round(deflate(bf.filled, i));
       }
     });
   });
@@ -2490,13 +2504,13 @@ function Charts({ scenarioA, scenarioB, scenarioC }) {
 
   const retirementCostData = scenarioA.map((a, i) => ({
     age: a.age,
-    spendA: Math.round(a.spendingTarget || 0),
-    taxA: Math.round(a.totalTax),
-    spendB: Math.round(scenarioB[i]?.spendingTarget || 0),
-    taxB: Math.round(scenarioB[i]?.totalTax || 0),
+    spendA: Math.round(deflate(a.spendingTarget || 0, i)),
+    taxA: Math.round(deflate(a.totalTax, i)),
+    spendB: Math.round(deflate(scenarioB[i]?.spendingTarget || 0, i)),
+    taxB: Math.round(deflate(scenarioB[i]?.totalTax || 0, i)),
     ...(scenarioC ? {
-      spendC: Math.round(scenarioC[i]?.spendingTarget || 0),
-      taxC: Math.round(scenarioC[i]?.totalTax || 0)
+      spendC: Math.round(deflate(scenarioC[i]?.spendingTarget || 0, i)),
+      taxC: Math.round(deflate(scenarioC[i]?.totalTax || 0, i))
     } : {})
   }));
 
@@ -2586,8 +2600,8 @@ function Charts({ scenarioA, scenarioB, scenarioC }) {
       )
     },
     {
-      title: 'Total Cost of Retirement (Spending + Taxes)',
-      caption: 'How much you have to spend each year, and how much extra goes to taxes.',
+      title: 'Total Cost of Retirement (Living Expenses + Taxes)',
+      caption: 'Your annual living expenses, and how much extra goes to taxes.',
       controls: () => {
         const toggleBtn = (key, label) => React.createElement('button', {
           className: costChartScenario === key ? 'active' : '',
@@ -2615,7 +2629,7 @@ function Charts({ scenarioA, scenarioB, scenarioC }) {
             React.createElement(YAxis, { tickFormatter: v => `$${(v/1000).toFixed(0)}k`, tick: { fontSize: 11 } }),
             React.createElement(Tooltip, { formatter: tooltipFormatter }),
             React.createElement(Legend, null),
-            React.createElement(Bar, { dataKey: spendKey, stackId: 'cost', fill: spendFill, name: `${label} Spending` }),
+            React.createElement(Bar, { dataKey: spendKey, stackId: 'cost', fill: spendFill, name: `${label} Living Expenses` }),
             React.createElement(Bar, { dataKey: taxKey, stackId: 'cost', fill: taxFill, name: `${label} Tax` })
           )
         );
@@ -2894,19 +2908,22 @@ function App() {
             scenarioA: results.scenarioA,
             scenarioB: results.scenarioB,
             scenarioC: results.scenarioC,
-            breakevenAge: results.breakevenAge
+            breakevenAge: results.breakevenAge,
+            showReal, inflationRate: inputs.inflationRate
           }),
           React.createElement(Charts, {
             scenarioA: results.scenarioA,
             scenarioB: results.scenarioB,
-            scenarioC: results.scenarioC
+            scenarioC: results.scenarioC,
+            showReal, inflationRate: inputs.inflationRate
           })
         ),
 
         activeTab === 'charts' && React.createElement(Charts, {
           scenarioA: results.scenarioA,
           scenarioB: results.scenarioB,
-          scenarioC: results.scenarioC
+          scenarioC: results.scenarioC,
+          showReal, inflationRate: inputs.inflationRate
         }),
 
         activeTab === 'tableA' && React.createElement('div', { className: 'card' },
