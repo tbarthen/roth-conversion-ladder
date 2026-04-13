@@ -212,6 +212,36 @@ h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bot
 .chart-container { width: 100%; height: 350px; }
 .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 @media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
+.chart-card { cursor: pointer; transition: box-shadow 0.15s, transform 0.15s; }
+.chart-card:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); }
+
+/* Chart expand overlay */
+.chart-overlay-backdrop {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(15, 23, 42, 0.7); z-index: 2000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 40px; animation: overlayIn 0.2s ease-out;
+}
+.chart-overlay-card {
+  background: var(--bg-card); border-radius: var(--radius-lg);
+  padding: 24px 28px; width: calc(100vw - 80px); max-width: 1600px;
+  position: relative; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  display: flex; flex-direction: column;
+}
+.chart-overlay-card h3 {
+  margin: 0 0 16px 0; padding-right: 40px;
+  font-size: 1.1rem; color: var(--text-primary);
+}
+.chart-overlay-body { width: 100%; height: 560px; }
+.chart-overlay-close {
+  position: absolute; top: 14px; right: 14px;
+  width: 32px; height: 32px; border-radius: 50%;
+  background: var(--bg-input); border: 1px solid var(--border);
+  font-size: 1.25rem; line-height: 1; cursor: pointer; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-secondary);
+}
+.chart-overlay-close:hover { background: var(--border); color: var(--text-primary); }
 
 /* Collapsible */
 .collapsible-header {
@@ -2027,8 +2057,42 @@ function ConversionSchedule({ data, scenarioLabel, showReal, inflationRate }) {
   );
 }
 
+/* ---- Chart Expand Overlay ---- */
+function ChartOverlay({ title, onClose, children }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose]);
+
+  return React.createElement('div', {
+    className: 'chart-overlay-backdrop',
+    onClick: onClose
+  },
+    React.createElement('div', {
+      className: 'chart-overlay-card',
+      onClick: (e) => e.stopPropagation()
+    },
+      React.createElement('button', {
+        className: 'chart-overlay-close',
+        onClick: onClose,
+        'aria-label': 'Close expanded chart'
+      }, '\u00D7'),
+      React.createElement('h3', null, title),
+      React.createElement('div', { className: 'chart-overlay-body' }, children)
+    )
+  );
+}
+
 /* ---- Charts ---- */
 function Charts({ scenarioA, scenarioB, scenarioC }) {
+  const [expandedIdx, setExpandedIdx] = useState(null);
+
   const cumulativeData = scenarioA.map((a, i) => ({
     age: a.age,
     noConversion: Math.round(a.cumulativeTax),
@@ -2075,106 +2139,106 @@ function Charts({ scenarioA, scenarioB, scenarioC }) {
   const tooltipFormatter = (value) => fmt(value);
   const pctTooltipFormatter = (value) => value == null ? '-' : `${value.toFixed(1)}%`;
 
-  return React.createElement('div', { className: 'charts-grid' },
-    /* Chart 1: Cumulative Tax Comparison */
-    React.createElement('div', { className: 'card' },
-      React.createElement('h3', null, 'Cumulative Tax Comparison'),
-      React.createElement('div', { className: 'chart-container' },
-        React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
-          React.createElement(LineChart, { data: cumulativeData, margin: chartMargin },
-            React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#e2e8f0' }),
-            React.createElement(XAxis, { dataKey: 'age', tick: { fontSize: 11 } }),
-            React.createElement(YAxis, { tickFormatter: v => `$${(v/1000).toFixed(0)}k`, tick: { fontSize: 11 } }),
-            React.createElement(Tooltip, { formatter: tooltipFormatter }),
-            React.createElement(Legend, null),
-            React.createElement(Line, { type: 'monotone', dataKey: 'noConversion', stroke: '#ea580c', strokeWidth: 2, name: 'No Conversion', dot: false }),
-            React.createElement(Line, { type: 'monotone', dataKey: 'optimized', stroke: '#0d9488', strokeWidth: 2, name: 'Optimized', dot: false }),
-            scenarioC && React.createElement(Line, { type: 'monotone', dataKey: 'custom', stroke: '#7c3aed', strokeWidth: 2, name: 'Custom', dot: false })
-          )
+  const chartEntries = [
+    {
+      title: 'Cumulative Tax Comparison',
+      body: () => React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+        React.createElement(LineChart, { data: cumulativeData, margin: chartMargin },
+          React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#e2e8f0' }),
+          React.createElement(XAxis, { dataKey: 'age', tick: { fontSize: 11 } }),
+          React.createElement(YAxis, { tickFormatter: v => `$${(v/1000).toFixed(0)}k`, tick: { fontSize: 11 } }),
+          React.createElement(Tooltip, { formatter: tooltipFormatter }),
+          React.createElement(Legend, null),
+          React.createElement(Line, { type: 'monotone', dataKey: 'noConversion', stroke: '#ea580c', strokeWidth: 2, name: 'No Conversion', dot: false }),
+          React.createElement(Line, { type: 'monotone', dataKey: 'optimized', stroke: '#0d9488', strokeWidth: 2, name: 'Optimized', dot: false }),
+          scenarioC && React.createElement(Line, { type: 'monotone', dataKey: 'custom', stroke: '#7c3aed', strokeWidth: 2, name: 'Custom', dot: false })
+        )
+      )
+    },
+    {
+      title: 'Account Balances (Optimized Strategy)',
+      body: () => React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+        React.createElement(AreaChart, { data: balanceDataB, margin: chartMargin },
+          React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#e2e8f0' }),
+          React.createElement(XAxis, { dataKey: 'age', tick: { fontSize: 11 } }),
+          React.createElement(YAxis, { tickFormatter: v => `$${(v/1000000).toFixed(1)}M`, tick: { fontSize: 11 } }),
+          React.createElement(Tooltip, { formatter: tooltipFormatter }),
+          React.createElement(Legend, null),
+          React.createElement(Area, { type: 'monotone', dataKey: 'Traditional', stackId: '1', fill: '#ea580c', stroke: '#ea580c', fillOpacity: 0.7 }),
+          React.createElement(Area, { type: 'monotone', dataKey: 'Roth', stackId: '1', fill: '#0d9488', stroke: '#0d9488', fillOpacity: 0.7 }),
+          React.createElement(Area, { type: 'monotone', dataKey: 'Taxable', stackId: '1', fill: '#2563eb', stroke: '#2563eb', fillOpacity: 0.7 }),
+          React.createElement(Area, { type: 'monotone', dataKey: 'HSA', stackId: '1', fill: '#7c3aed', stroke: '#7c3aed', fillOpacity: 0.7 })
+        )
+      )
+    },
+    {
+      title: 'Annual Tax Burden Comparison',
+      body: () => React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+        React.createElement(BarChart, { data: annualTaxData, margin: chartMargin },
+          React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#e2e8f0' }),
+          React.createElement(XAxis, { dataKey: 'age', tick: { fontSize: 11 } }),
+          React.createElement(YAxis, { tickFormatter: v => `$${(v/1000).toFixed(0)}k`, tick: { fontSize: 11 } }),
+          React.createElement(Tooltip, { formatter: tooltipFormatter }),
+          React.createElement(Legend, null),
+          React.createElement(Bar, { dataKey: 'noConversion', fill: '#ea580c', name: 'No Conversion', opacity: 0.8 }),
+          React.createElement(Bar, { dataKey: 'optimized', fill: '#0d9488', name: 'Optimized', opacity: 0.8 }),
+          scenarioC && React.createElement(Bar, { dataKey: 'custom', fill: '#7c3aed', name: 'Custom', opacity: 0.8 })
+        )
+      )
+    },
+    {
+      title: 'Income by Tax Bracket (Optimized Strategy)',
+      body: () => React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+        React.createElement(AreaChart, { data: bracketData, margin: chartMargin },
+          React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#e2e8f0' }),
+          React.createElement(XAxis, { dataKey: 'age', tick: { fontSize: 11 } }),
+          React.createElement(YAxis, { tickFormatter: v => `$${(v/1000).toFixed(0)}k`, tick: { fontSize: 11 } }),
+          React.createElement(Tooltip, { formatter: tooltipFormatter }),
+          React.createElement(Legend, null),
+          React.createElement(Area, { type: 'monotone', dataKey: 'rate10', stackId: '1', fill: '#059669', stroke: '#059669', name: '10%', fillOpacity: 0.8 }),
+          React.createElement(Area, { type: 'monotone', dataKey: 'rate12', stackId: '1', fill: '#0d9488', stroke: '#0d9488', name: '12%', fillOpacity: 0.8 }),
+          React.createElement(Area, { type: 'monotone', dataKey: 'rate22', stackId: '1', fill: '#2563eb', stroke: '#2563eb', name: '22%', fillOpacity: 0.8 }),
+          React.createElement(Area, { type: 'monotone', dataKey: 'rate24', stackId: '1', fill: '#7c3aed', stroke: '#7c3aed', name: '24%', fillOpacity: 0.8 }),
+          React.createElement(Area, { type: 'monotone', dataKey: 'rate32', stackId: '1', fill: '#db2777', stroke: '#db2777', name: '32%', fillOpacity: 0.8 }),
+          React.createElement(Area, { type: 'monotone', dataKey: 'rate35', stackId: '1', fill: '#ea580c', stroke: '#ea580c', name: '35%', fillOpacity: 0.8 }),
+          React.createElement(Area, { type: 'monotone', dataKey: 'rate37', stackId: '1', fill: '#dc2626', stroke: '#dc2626', name: '37%', fillOpacity: 0.8 })
+        )
+      )
+    },
+    {
+      title: 'Effective Tax Rate Over Time',
+      body: () => React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+        React.createElement(LineChart, { data: effectiveRateData, margin: chartMargin },
+          React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#e2e8f0' }),
+          React.createElement(XAxis, { dataKey: 'age', tick: { fontSize: 11 } }),
+          React.createElement(YAxis, { tickFormatter: v => `${v.toFixed(0)}%`, tick: { fontSize: 11 } }),
+          React.createElement(Tooltip, { formatter: pctTooltipFormatter }),
+          React.createElement(Legend, null),
+          React.createElement(Line, { type: 'monotone', dataKey: 'noConversion', stroke: '#ea580c', strokeWidth: 2, name: 'No Conversion', dot: false }),
+          React.createElement(Line, { type: 'monotone', dataKey: 'optimized', stroke: '#0d9488', strokeWidth: 2, name: 'Optimized', dot: false }),
+          scenarioC && React.createElement(Line, { type: 'monotone', dataKey: 'custom', stroke: '#7c3aed', strokeWidth: 2, name: 'Custom', dot: false })
+        )
+      )
+    }
+  ];
+
+  return React.createElement(React.Fragment, null,
+    React.createElement('div', { className: 'charts-grid' },
+      chartEntries.map((entry, idx) =>
+        React.createElement('div', {
+          key: entry.title,
+          className: 'card chart-card',
+          onClick: () => setExpandedIdx(idx)
+        },
+          React.createElement('h3', null, entry.title),
+          React.createElement('div', { className: 'chart-container' }, entry.body())
         )
       )
     ),
-
-    /* Chart 2: Account Balances (Optimized Scenario) */
-    React.createElement('div', { className: 'card' },
-      React.createElement('h3', null, 'Account Balances (Optimized Strategy)'),
-      React.createElement('div', { className: 'chart-container' },
-        React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
-          React.createElement(AreaChart, { data: balanceDataB, margin: chartMargin },
-            React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#e2e8f0' }),
-            React.createElement(XAxis, { dataKey: 'age', tick: { fontSize: 11 } }),
-            React.createElement(YAxis, { tickFormatter: v => `$${(v/1000000).toFixed(1)}M`, tick: { fontSize: 11 } }),
-            React.createElement(Tooltip, { formatter: tooltipFormatter }),
-            React.createElement(Legend, null),
-            React.createElement(Area, { type: 'monotone', dataKey: 'Traditional', stackId: '1', fill: '#ea580c', stroke: '#ea580c', fillOpacity: 0.7 }),
-            React.createElement(Area, { type: 'monotone', dataKey: 'Roth', stackId: '1', fill: '#0d9488', stroke: '#0d9488', fillOpacity: 0.7 }),
-            React.createElement(Area, { type: 'monotone', dataKey: 'Taxable', stackId: '1', fill: '#2563eb', stroke: '#2563eb', fillOpacity: 0.7 }),
-            React.createElement(Area, { type: 'monotone', dataKey: 'HSA', stackId: '1', fill: '#7c3aed', stroke: '#7c3aed', fillOpacity: 0.7 })
-          )
-        )
-      )
-    ),
-
-    /* Chart 3: Annual Tax Burden */
-    React.createElement('div', { className: 'card' },
-      React.createElement('h3', null, 'Annual Tax Burden Comparison'),
-      React.createElement('div', { className: 'chart-container' },
-        React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
-          React.createElement(BarChart, { data: annualTaxData, margin: chartMargin },
-            React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#e2e8f0' }),
-            React.createElement(XAxis, { dataKey: 'age', tick: { fontSize: 11 } }),
-            React.createElement(YAxis, { tickFormatter: v => `$${(v/1000).toFixed(0)}k`, tick: { fontSize: 11 } }),
-            React.createElement(Tooltip, { formatter: tooltipFormatter }),
-            React.createElement(Legend, null),
-            React.createElement(Bar, { dataKey: 'noConversion', fill: '#ea580c', name: 'No Conversion', opacity: 0.8 }),
-            React.createElement(Bar, { dataKey: 'optimized', fill: '#0d9488', name: 'Optimized', opacity: 0.8 }),
-            scenarioC && React.createElement(Bar, { dataKey: 'custom', fill: '#7c3aed', name: 'Custom', opacity: 0.8 })
-          )
-        )
-      )
-    ),
-
-    /* Chart 4: Marginal Bracket by Year (Optimized) */
-    React.createElement('div', { className: 'card' },
-      React.createElement('h3', null, 'Income by Tax Bracket (Optimized Strategy)'),
-      React.createElement('div', { className: 'chart-container' },
-        React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
-          React.createElement(AreaChart, { data: bracketData, margin: chartMargin },
-            React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#e2e8f0' }),
-            React.createElement(XAxis, { dataKey: 'age', tick: { fontSize: 11 } }),
-            React.createElement(YAxis, { tickFormatter: v => `$${(v/1000).toFixed(0)}k`, tick: { fontSize: 11 } }),
-            React.createElement(Tooltip, { formatter: tooltipFormatter }),
-            React.createElement(Legend, null),
-            React.createElement(Area, { type: 'monotone', dataKey: 'rate10', stackId: '1', fill: '#059669', stroke: '#059669', name: '10%', fillOpacity: 0.8 }),
-            React.createElement(Area, { type: 'monotone', dataKey: 'rate12', stackId: '1', fill: '#0d9488', stroke: '#0d9488', name: '12%', fillOpacity: 0.8 }),
-            React.createElement(Area, { type: 'monotone', dataKey: 'rate22', stackId: '1', fill: '#2563eb', stroke: '#2563eb', name: '22%', fillOpacity: 0.8 }),
-            React.createElement(Area, { type: 'monotone', dataKey: 'rate24', stackId: '1', fill: '#7c3aed', stroke: '#7c3aed', name: '24%', fillOpacity: 0.8 }),
-            React.createElement(Area, { type: 'monotone', dataKey: 'rate32', stackId: '1', fill: '#db2777', stroke: '#db2777', name: '32%', fillOpacity: 0.8 }),
-            React.createElement(Area, { type: 'monotone', dataKey: 'rate35', stackId: '1', fill: '#ea580c', stroke: '#ea580c', name: '35%', fillOpacity: 0.8 }),
-            React.createElement(Area, { type: 'monotone', dataKey: 'rate37', stackId: '1', fill: '#dc2626', stroke: '#dc2626', name: '37%', fillOpacity: 0.8 })
-          )
-        )
-      )
-    ),
-
-    /* Chart 5: Effective Tax Rate Over Time */
-    React.createElement('div', { className: 'card' },
-      React.createElement('h3', null, 'Effective Tax Rate Over Time'),
-      React.createElement('div', { className: 'chart-container' },
-        React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
-          React.createElement(LineChart, { data: effectiveRateData, margin: chartMargin },
-            React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#e2e8f0' }),
-            React.createElement(XAxis, { dataKey: 'age', tick: { fontSize: 11 } }),
-            React.createElement(YAxis, { tickFormatter: v => `${v.toFixed(0)}%`, tick: { fontSize: 11 } }),
-            React.createElement(Tooltip, { formatter: pctTooltipFormatter }),
-            React.createElement(Legend, null),
-            React.createElement(Line, { type: 'monotone', dataKey: 'noConversion', stroke: '#ea580c', strokeWidth: 2, name: 'No Conversion', dot: false }),
-            React.createElement(Line, { type: 'monotone', dataKey: 'optimized', stroke: '#0d9488', strokeWidth: 2, name: 'Optimized', dot: false }),
-            scenarioC && React.createElement(Line, { type: 'monotone', dataKey: 'custom', stroke: '#7c3aed', strokeWidth: 2, name: 'Custom', dot: false })
-          )
-        )
-      )
-    )
+    expandedIdx !== null && React.createElement(ChartOverlay, {
+      title: chartEntries[expandedIdx].title,
+      onClose: () => setExpandedIdx(null)
+    }, chartEntries[expandedIdx].body())
   );
 }
 
