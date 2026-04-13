@@ -214,6 +214,14 @@ h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bot
 @media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
 .chart-card { cursor: pointer; transition: box-shadow 0.15s, transform 0.15s; }
 .chart-card:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); }
+.chart-toggle { display: flex; gap: 4px; margin-bottom: 10px; }
+.chart-toggle button {
+  padding: 5px 12px; border-radius: var(--radius); cursor: pointer;
+  font-size: 0.8rem; font-weight: 500; border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--text-secondary); transition: all 0.2s;
+}
+.chart-toggle button.active { background: var(--accent-teal); color: white; border-color: var(--accent-teal); }
+.chart-toggle button:hover:not(.active) { background: var(--bg-input); }
 
 /* Chart expand overlay */
 .chart-overlay-backdrop {
@@ -2060,7 +2068,7 @@ function ConversionSchedule({ data, scenarioLabel, showReal, inflationRate }) {
 }
 
 /* ---- Chart Expand Overlay ---- */
-function ChartOverlay({ title, onClose, children }) {
+function ChartOverlay({ title, controls, onClose, children }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -2086,6 +2094,7 @@ function ChartOverlay({ title, onClose, children }) {
         'aria-label': 'Close expanded chart'
       }, '\u00D7'),
       React.createElement('h3', null, title),
+      controls,
       React.createElement('div', { className: 'chart-overlay-body' }, children)
     )
   );
@@ -2094,6 +2103,7 @@ function ChartOverlay({ title, onClose, children }) {
 /* ---- Charts ---- */
 function Charts({ scenarioA, scenarioB, scenarioC }) {
   const [expandedIdx, setExpandedIdx] = useState(null);
+  const [costChartScenario, setCostChartScenario] = useState('optimized');
 
   const cumulativeData = scenarioA.map((a, i) => ({
     age: a.age,
@@ -2251,21 +2261,38 @@ function Charts({ scenarioA, scenarioB, scenarioC }) {
     },
     {
       title: 'Total Cost of Retirement (Spending + Taxes)',
-      body: () => React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
-        React.createElement(BarChart, { data: retirementCostData, margin: chartMargin },
-          React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#e2e8f0' }),
-          React.createElement(XAxis, { dataKey: 'age', tick: { fontSize: 11 } }),
-          React.createElement(YAxis, { tickFormatter: v => `$${(v/1000).toFixed(0)}k`, tick: { fontSize: 11 } }),
-          React.createElement(Tooltip, { formatter: tooltipFormatter }),
-          React.createElement(Legend, null),
-          React.createElement(Bar, { dataKey: 'spendA', stackId: 'noConv', fill: '#fed7aa', name: 'No Conv. Spending' }),
-          React.createElement(Bar, { dataKey: 'taxA', stackId: 'noConv', fill: '#ea580c', name: 'No Conv. Tax' }),
-          React.createElement(Bar, { dataKey: 'spendB', stackId: 'opt', fill: '#99f6e4', name: 'Optimized Spending' }),
-          React.createElement(Bar, { dataKey: 'taxB', stackId: 'opt', fill: '#0d9488', name: 'Optimized Tax' }),
-          scenarioC && React.createElement(Bar, { dataKey: 'spendC', stackId: 'cust', fill: '#ddd6fe', name: 'Custom Spending' }),
-          scenarioC && React.createElement(Bar, { dataKey: 'taxC', stackId: 'cust', fill: '#7c3aed', name: 'Custom Tax' })
-        )
-      )
+      controls: () => {
+        const toggleBtn = (key, label) => React.createElement('button', {
+          className: costChartScenario === key ? 'active' : '',
+          onClick: () => setCostChartScenario(key)
+        }, label);
+        return React.createElement('div', {
+          className: 'chart-toggle',
+          onClick: (e) => e.stopPropagation()
+        },
+          toggleBtn('noConversion', 'No Conversion'),
+          toggleBtn('optimized', 'Optimized')
+        );
+      },
+      body: () => {
+        const isOpt = costChartScenario === 'optimized';
+        const spendKey = isOpt ? 'spendB' : 'spendA';
+        const taxKey = isOpt ? 'taxB' : 'taxA';
+        const spendFill = isOpt ? '#99f6e4' : '#fed7aa';
+        const taxFill = isOpt ? '#0d9488' : '#ea580c';
+        const label = isOpt ? 'Optimized' : 'No Conversion';
+        return React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+          React.createElement(BarChart, { data: retirementCostData, margin: chartMargin },
+            React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#e2e8f0' }),
+            React.createElement(XAxis, { dataKey: 'age', tick: { fontSize: 11 } }),
+            React.createElement(YAxis, { tickFormatter: v => `$${(v/1000).toFixed(0)}k`, tick: { fontSize: 11 } }),
+            React.createElement(Tooltip, { formatter: tooltipFormatter }),
+            React.createElement(Legend, null),
+            React.createElement(Bar, { dataKey: spendKey, stackId: 'cost', fill: spendFill, name: `${label} Spending` }),
+            React.createElement(Bar, { dataKey: taxKey, stackId: 'cost', fill: taxFill, name: `${label} Tax` })
+          )
+        );
+      }
     }
   ];
 
@@ -2278,12 +2305,14 @@ function Charts({ scenarioA, scenarioB, scenarioC }) {
           onClick: () => setExpandedIdx(idx)
         },
           React.createElement('h3', null, entry.title),
+          entry.controls && entry.controls(),
           React.createElement('div', { className: 'chart-container' }, entry.body())
         )
       )
     ),
     expandedIdx !== null && React.createElement(ChartOverlay, {
       title: chartEntries[expandedIdx].title,
+      controls: chartEntries[expandedIdx].controls && chartEntries[expandedIdx].controls(),
       onClose: () => setExpandedIdx(null)
     }, chartEntries[expandedIdx].body())
   );
