@@ -84,6 +84,35 @@ h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bot
 .form-group input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .form-group.profile-tinted input,
 .form-group.profile-tinted select { background-color: #f0fdf4; }
+.form-group.field-defaulted input,
+.form-group.field-defaulted select { background-color: #fef9c3; border-color: #eab308; }
+.form-group.field-defaulted .input-wrapper { border-radius: var(--radius); }
+
+.import-banner {
+  background: #fef9c3; border: 1px solid #eab308; border-left: 4px solid #ca8a04;
+  border-radius: var(--radius); padding: 14px 18px; margin-bottom: 16px;
+  font-size: 0.88rem; color: #713f12;
+}
+.import-banner h4 { margin: 0 0 6px 0; font-size: 0.92rem; color: #713f12; }
+.import-banner p { margin: 0 0 8px 0; line-height: 1.5; }
+.import-banner .banner-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.import-banner .banner-actions button {
+  padding: 6px 14px; border-radius: var(--radius); cursor: pointer;
+  font-size: 0.82rem; font-weight: 500; border: 1px solid #ca8a04;
+  background: white; color: #713f12;
+}
+.import-banner .banner-actions button:hover { background: #fef3c7; }
+.import-banner .banner-actions button.primary { background: #ca8a04; color: white; }
+.import-banner .banner-actions button.primary:hover { background: #a16207; }
+.import-banner .fine-print { font-size: 0.78rem; color: #78716c; margin-top: 6px; font-style: italic; }
+
+.profile-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.profile-actions button {
+  padding: 6px 14px; border-radius: var(--radius); cursor: pointer;
+  font-size: 0.82rem; font-weight: 500; border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--text-secondary); transition: all 0.2s;
+}
+.profile-actions button:hover { background: var(--bg-input); }
 .form-section-title {
   font-size: 0.85rem; font-weight: 600; color: var(--accent-teal-dark);
   text-transform: uppercase; letter-spacing: 0.05em;
@@ -1424,13 +1453,181 @@ const SAMPLE_PROFILES = [
   }
 ];
 
+/* ---- Profile persistence ----
+   All fields that make up an input profile, as dotted paths. Source of
+   truth for export, import, and "missing field" detection. */
+const INPUT_FIELD_PATHS = [
+  'currentAge', 'retirementAge', 'lifeExpectancy', 'filingStatus',
+  'stateAbbr', 'stateTaxRate', 'spouseAge', 'spouseLifeExpectancy',
+  'traditionalBalance', 'rothBalance', 'taxableBalance', 'taxableCostBasis',
+  'hsaBalance',
+  'annualContributions.traditional', 'annualContributions.roth',
+  'annualContributions.taxable', 'annualContributions.hsa',
+  'grossIncome', 'ssAnnualBenefit', 'ssStartAge',
+  'spouseSsBenefit', 'spouseSsStartAge', 'pensionIncome', 'annualSpending',
+  'preRetirementGrowth', 'rothGrowth', 'taxableGrowth', 'dividendYield',
+  'inflationRate', 'bracketInflation', 'targetBracket',
+  'customConversion', 'taxPaymentSource'
+];
+
+const FIELD_LABELS = {
+  currentAge: 'Current Age',
+  retirementAge: 'Retirement Age',
+  lifeExpectancy: 'Life Expectancy',
+  filingStatus: 'Filing Status',
+  stateAbbr: 'State',
+  stateTaxRate: 'State Tax Rate',
+  spouseAge: 'Spouse Age',
+  spouseLifeExpectancy: 'Spouse Life Expectancy',
+  traditionalBalance: 'Traditional IRA/401(k) Balance',
+  rothBalance: 'Roth IRA Balance',
+  taxableBalance: 'Taxable Balance',
+  taxableCostBasis: 'Taxable Cost Basis',
+  hsaBalance: 'HSA Balance',
+  'annualContributions.traditional': 'Annual Traditional Contributions',
+  'annualContributions.roth': 'Annual Roth Contributions',
+  'annualContributions.taxable': 'Annual Taxable Contributions',
+  'annualContributions.hsa': 'Annual HSA Contributions',
+  grossIncome: 'Current Gross Income',
+  ssAnnualBenefit: 'Social Security Benefit',
+  ssStartAge: 'Social Security Start Age',
+  spouseSsBenefit: 'Spouse Social Security Benefit',
+  spouseSsStartAge: 'Spouse Social Security Start Age',
+  pensionIncome: 'Pension Income',
+  annualSpending: 'Annual Spending',
+  preRetirementGrowth: 'Pre-Retirement Growth',
+  rothGrowth: 'Roth Growth',
+  taxableGrowth: 'Taxable Growth',
+  dividendYield: 'Dividend Yield',
+  inflationRate: 'Inflation Rate',
+  bracketInflation: 'Bracket Inflation',
+  targetBracket: 'Target Bracket',
+  customConversion: 'Custom Conversion Amount',
+  taxPaymentSource: 'Tax Payment Source'
+};
+
+const makeDefaultInputs = () => ({
+  currentAge: '',
+  retirementAge: '',
+  lifeExpectancy: 90,
+  filingStatus: 'marriedFilingJointly',
+  stateAbbr: '--',
+  stateTaxRate: 0,
+  spouseAge: '',
+  spouseLifeExpectancy: 90,
+  traditionalBalance: '',
+  rothBalance: '',
+  taxableBalance: '',
+  taxableCostBasis: '',
+  hsaBalance: 0,
+  annualContributions: { traditional: 0, roth: 0, taxable: 0, hsa: 0 },
+  grossIncome: 0,
+  ssAnnualBenefit: '',
+  ssStartAge: 67,
+  spouseSsBenefit: '',
+  spouseSsStartAge: 67,
+  pensionIncome: 0,
+  annualSpending: '',
+  preRetirementGrowth: 6,
+  rothGrowth: 6,
+  taxableGrowth: 6,
+  dividendYield: 1.3,
+  inflationRate: 2.5,
+  bracketInflation: 2.5,
+  targetBracket: '0.24',
+  customConversion: 0,
+  taxPaymentSource: 'taxable'
+});
+
+const PROFILE_STORAGE_KEY = 'roth-optimizer-profile';
+const PROFILE_SCHEMA_VERSION = 1;
+
+const loadSavedProfile = () => {
+  try {
+    const raw = localStorage.getItem(PROFILE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch (err) {
+    console.warn('Could not read saved profile:', err);
+    return null;
+  }
+};
+
+const saveProfileToStorage = (inputs) => {
+  try {
+    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(inputs));
+    return true;
+  } catch (err) {
+    console.warn('Could not save profile:', err);
+    return false;
+  }
+};
+
+const getFieldByPath = (obj, path) => {
+  const parts = path.split('.');
+  let cursor = obj;
+  for (const part of parts) {
+    if (cursor == null || typeof cursor !== 'object') return undefined;
+    cursor = cursor[part];
+  }
+  return cursor;
+};
+
+const setFieldByPath = (obj, path, value) => {
+  const parts = path.split('.');
+  let cursor = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (cursor[parts[i]] == null || typeof cursor[parts[i]] !== 'object') {
+      cursor[parts[i]] = {};
+    }
+    cursor = cursor[parts[i]];
+  }
+  cursor[parts[parts.length - 1]] = value;
+};
+
+/* Walk imported object against the canonical field list. Fields present on
+ * the import win; fields missing (e.g. from an older export) fall through to
+ * defaults and are reported as missingPaths. Extra keys in the import are
+ * silently dropped. */
+const mergeInputsWithDefaults = (imported) => {
+  const merged = makeDefaultInputs();
+  const missingPaths = [];
+  if (!imported || typeof imported !== 'object') {
+    return { inputs: merged, missingPaths: [...INPUT_FIELD_PATHS] };
+  }
+  for (const path of INPUT_FIELD_PATHS) {
+    const value = getFieldByPath(imported, path);
+    if (value === undefined) {
+      missingPaths.push(path);
+    } else {
+      setFieldByPath(merged, path, value);
+    }
+  }
+  return { inputs: merged, missingPaths };
+};
+
+const buildExportPayload = (inputs) => {
+  const payload = {
+    schemaVersion: PROFILE_SCHEMA_VERSION,
+    exportDate: new Date().toISOString()
+  };
+  for (const path of INPUT_FIELD_PATHS) {
+    setFieldByPath(payload, path, getFieldByPath(inputs, path));
+  }
+  return payload;
+};
+
 /* ---- Input Form Component ---- */
-function InputForm({ inputs, setInputs, onCalculate, ratesFallback }) {
+function InputForm({ inputs, setInputs, onCalculate, ratesFallback, hasSavedProfile, onSaveProfile }) {
   const [showAdvancedGrowth, setShowAdvancedGrowth] = useState(false);
-  const [selectedProfile, setSelectedProfile] = useState('');
+  const [selectedProfile, setSelectedProfile] = useState(() => hasSavedProfile ? 'my-profile' : '');
   const [profileFields, setProfileFields] = useState(new Set());
   const [editedFields, setEditedFields] = useState(new Set());
+  const [defaultedFields, setDefaultedFields] = useState(new Set());
+  const [importBanner, setImportBanner] = useState(null);
   const [showStickyCalc, setShowStickyCalc] = useState(false);
+  const fileInputRef = useRef(null);
   const calcBtnRef = useRef(null);
 
   /* Intersection observer for sticky calculate button */
@@ -1444,8 +1641,18 @@ function InputForm({ inputs, setInputs, onCalculate, ratesFallback }) {
     return () => observer.disconnect();
   }, []);
 
+  const clearDefaultedPath = (path) => {
+    setDefaultedFields(prev => {
+      if (!prev.has(path)) return prev;
+      const next = new Set(prev);
+      next.delete(path);
+      return next;
+    });
+  };
+
   const update = (field, value) => {
     setEditedFields(prev => new Set(prev).add(field));
+    clearDefaultedPath(field);
     setInputs(prev => {
       const next = { ...prev, [field]: value };
       if (field === 'preRetirementGrowth' && !showAdvancedGrowth) {
@@ -1457,6 +1664,7 @@ function InputForm({ inputs, setInputs, onCalculate, ratesFallback }) {
   };
   const updateNested = (parent, field, value) => {
     setEditedFields(prev => new Set(prev).add(`${parent}.${field}`));
+    clearDefaultedPath(`${parent}.${field}`);
     setInputs(prev => ({
       ...prev,
       [parent]: { ...prev[parent], [field]: value }
@@ -1465,6 +1673,20 @@ function InputForm({ inputs, setInputs, onCalculate, ratesFallback }) {
 
   const applyProfile = (profileValue) => {
     setSelectedProfile(profileValue);
+    /* "My Profile" loads the user's saved localStorage snapshot. No tinting —
+     * every field would be highlighted, which isn't useful when the user is
+     * looking at their own data. */
+    if (profileValue === 'my-profile') {
+      const saved = loadSavedProfile();
+      if (!saved) return;
+      const { inputs: merged } = mergeInputsWithDefaults(saved);
+      setProfileFields(new Set());
+      setEditedFields(new Set());
+      setDefaultedFields(new Set());
+      setImportBanner(null);
+      setInputs(merged);
+      return;
+    }
     const profile = SAMPLE_PROFILES.find(p => p.value === profileValue);
     if (!profile || !profile.data) return;
     /* Track which fields this profile sets */
@@ -1496,9 +1718,58 @@ function InputForm({ inputs, setInputs, onCalculate, ratesFallback }) {
     }));
   };
 
+  const onExport = () => {
+    const payload = buildExportPayload(inputs);
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const dateStr = new Date().toISOString().slice(0, 10);
+    link.href = url;
+    link.download = `roth-optimizer-inputs-${dateStr}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const onImportFile = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const parsed = JSON.parse(e.target.result);
+        const { inputs: merged, missingPaths } = mergeInputsWithDefaults(parsed);
+        setInputs(merged);
+        setProfileFields(new Set());
+        setEditedFields(new Set());
+        setDefaultedFields(new Set(missingPaths));
+        setSelectedProfile('');
+        setImportBanner({ missingPaths, showSaveOffer: true });
+      } catch (err) {
+        alert('Could not read that file. Make sure it\u2019s a valid JSON export from this app.\n\n' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const onDismissBanner = () => {
+    setImportBanner(null);
+    setDefaultedFields(new Set());
+  };
+
+  const onSaveImportAsProfile = () => {
+    if (onSaveProfile) onSaveProfile();
+    setImportBanner(prev => prev ? { ...prev, showSaveOffer: false, justSaved: true } : prev);
+  };
+
   const isTinted = (fieldName, nested, parentField) => {
     const key = nested ? `${parentField}.${fieldName}` : fieldName;
     return profileFields.has(key) && !editedFields.has(key);
+  };
+
+  const isDefaulted = (fieldName, nested, parentField) => {
+    const key = nested ? `${parentField}.${fieldName}` : fieldName;
+    return defaultedFields.has(key);
   };
 
   const isMFJ = inputs.filingStatus === 'marriedFilingJointly';
@@ -1579,9 +1850,11 @@ function InputForm({ inputs, setInputs, onCalculate, ratesFallback }) {
       ? (e) => updateNested(parentField, fieldName, type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value)
       : (e) => update(fieldName, type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value);
     const tinted = isTinted(fieldName, nested, parentField);
+    const defaulted = isDefaulted(fieldName, nested, parentField);
+    const groupClass = `form-group${tinted ? ' profile-tinted' : ''}${defaulted ? ' field-defaulted' : ''}`;
 
     if (type === 'select') {
-      return React.createElement('div', { className: `form-group${tinted ? ' profile-tinted' : ''}`, key: fieldName },
+      return React.createElement('div', { className: groupClass, key: fieldName },
         React.createElement('label', null, label),
         React.createElement('select', { value: val || '', onChange },
           (options || []).map(o =>
@@ -1602,7 +1875,7 @@ function InputForm({ inputs, setInputs, onCalculate, ratesFallback }) {
     });
 
     if (hasPrefix || hasSuffix) {
-      return React.createElement('div', { className: `form-group${tinted ? ' profile-tinted' : ''}`, key: fieldName },
+      return React.createElement('div', { className: groupClass, key: fieldName },
         React.createElement('label', null, label),
         React.createElement('div', { className: `input-wrapper${hasPrefix ? ' has-prefix' : ''}${hasSuffix ? ' has-suffix' : ''}` },
           hasPrefix && React.createElement('span', { className: 'input-prefix' }, '$'),
@@ -1612,13 +1885,48 @@ function InputForm({ inputs, setInputs, onCalculate, ratesFallback }) {
       );
     }
 
-    return React.createElement('div', { className: `form-group${tinted ? ' profile-tinted' : ''}`, key: fieldName },
+    return React.createElement('div', { className: groupClass, key: fieldName },
       React.createElement('label', null, label),
       inputEl
     );
   };
 
+  const profileOptions = hasSavedProfile
+    ? [{ value: 'my-profile', label: 'My Profile (saved in this browser)' }, ...SAMPLE_PROFILES]
+    : SAMPLE_PROFILES;
+
+  const bannerEl = importBanner && React.createElement('div', { className: 'import-banner' },
+    React.createElement('h4', null, 'Import complete'),
+    importBanner.missingPaths.length > 0
+      ? React.createElement('p', null,
+          'The following fields were not in the imported file and have been set to defaults. Please review them — they are highlighted in yellow below: ',
+          React.createElement('strong', null,
+            importBanner.missingPaths.map(p => FIELD_LABELS[p] || p).join(', ')
+          ),
+          '.'
+        )
+      : React.createElement('p', null, 'All fields loaded successfully.'),
+    importBanner.showSaveOffer && React.createElement(React.Fragment, null,
+      React.createElement('p', { style: { marginTop: 10 } },
+        'Save these inputs as your profile? This writes to your browser\u2019s local storage so they load automatically next visit.'
+      ),
+      React.createElement('p', { className: 'fine-print' },
+        'Local storage is not permanent. Clearing your browser data, switching browsers, or using incognito mode will erase it. Use Export to keep a permanent backup.'
+      )
+    ),
+    importBanner.justSaved && React.createElement('p', { style: { marginTop: 8, color: '#15803d', fontWeight: 500 } },
+      'Saved to My Profile.'
+    ),
+    React.createElement('div', { className: 'banner-actions' },
+      importBanner.showSaveOffer && React.createElement('button', {
+        className: 'primary', onClick: onSaveImportAsProfile
+      }, 'Save to My Profile'),
+      React.createElement('button', { onClick: onDismissBanner }, 'Dismiss')
+    )
+  );
+
   return React.createElement(React.Fragment, null,
+    bannerEl,
     /* ---- Title & Profile Card ---- */
     React.createElement('div', { className: 'card' },
       React.createElement('div', { style: { marginBottom: 16 } },
@@ -1636,10 +1944,26 @@ function InputForm({ inputs, setInputs, onCalculate, ratesFallback }) {
           onChange: (e) => applyProfile(e.target.value),
           style: { width: '100%', padding: '8px 12px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', fontSize: '0.9rem' }
         },
-          SAMPLE_PROFILES.map(p =>
+          profileOptions.map(p =>
             React.createElement('option', { key: p.value, value: p.value },
               p.desc ? `${p.label} \u2014 ${p.desc}` : p.label)
           )
+        ),
+        React.createElement('div', { className: 'profile-actions' },
+          React.createElement('button', { onClick: onExport }, 'Export as JSON'),
+          React.createElement('button', {
+            onClick: () => fileInputRef.current && fileInputRef.current.click()
+          }, 'Import from JSON'),
+          React.createElement('input', {
+            ref: fileInputRef,
+            type: 'file',
+            accept: '.json,application/json',
+            style: { display: 'none' },
+            onChange: (e) => {
+              onImportFile(e.target.files && e.target.files[0]);
+              e.target.value = '';
+            }
+          })
         )
       )
     ),
@@ -2439,38 +2763,11 @@ function SourcesReferences() {
 
 /* ---- Main App Component ---- */
 function App() {
-  const [inputs, setInputs] = useState({
-    currentAge: '',
-    retirementAge: '',
-    lifeExpectancy: 90,
-    filingStatus: 'marriedFilingJointly',
-    stateAbbr: '--',
-    stateTaxRate: 0,
-    spouseAge: '',
-    spouseLifeExpectancy: 90,
-    traditionalBalance: '',
-    rothBalance: '',
-    taxableBalance: '',
-    taxableCostBasis: '',
-    hsaBalance: 0,
-    annualContributions: { traditional: 0, roth: 0, taxable: 0, hsa: 0 },
-    grossIncome: 0,
-    ssAnnualBenefit: '',
-    ssStartAge: 67,
-    spouseSsBenefit: '',
-    spouseSsStartAge: 67,
-    pensionIncome: 0,
-    annualSpending: '',
-    preRetirementGrowth: 6,
-    rothGrowth: 6,
-    taxableGrowth: 6,
-    dividendYield: 1.3,
-    inflationRate: 2.5,
-    bracketInflation: 2.5,
-    targetBracket: '0.24',
-    customConversion: 0,
-    taxPaymentSource: 'taxable'
+  const [inputs, setInputs] = useState(() => {
+    const saved = loadSavedProfile();
+    return saved ? mergeInputsWithDefaults(saved).inputs : makeDefaultInputs();
   });
+  const [hasSavedProfile, setHasSavedProfile] = useState(() => loadSavedProfile() !== null);
 
   const [results, setResults] = useState(null);
   const [activeTab, setActiveTab] = useState('summary');
@@ -2504,11 +2801,16 @@ function App() {
       .catch(() => { setRatesFallback(true); });
   }, []);
 
+  const saveCurrentInputs = useCallback(() => {
+    if (saveProfileToStorage(inputs)) setHasSavedProfile(true);
+  }, [inputs]);
+
   const onCalculate = useCallback(() => {
     if (!inputs.currentAge || !inputs.annualSpending) {
       alert('Please fill in at least your current age and annual spending before calculating.');
       return;
     }
+    saveCurrentInputs();
     setCalculating(true);
     /* Use setTimeout to allow UI to show loading state */
     setTimeout(() => {
@@ -2533,7 +2835,7 @@ function App() {
   }, [inputs]);
 
   return React.createElement('div', { className: 'app-container' },
-    React.createElement(InputForm, { inputs, setInputs, onCalculate, ratesFallback }),
+    React.createElement(InputForm, { inputs, setInputs, onCalculate, ratesFallback, hasSavedProfile, onSaveProfile: saveCurrentInputs }),
 
     calculating && React.createElement('div', { className: 'results-overlay' },
       React.createElement('div', { className: 'results-inner' },
