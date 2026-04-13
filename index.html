@@ -214,6 +214,7 @@ h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bot
 @media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
 .chart-card { cursor: pointer; transition: box-shadow 0.15s, transform 0.15s; }
 .chart-card:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); }
+.chart-caption { font-size: 0.8rem; color: var(--text-muted); margin: -2px 0 10px 0; line-height: 1.4; font-weight: 400; }
 .chart-toggle { display: flex; gap: 4px; margin-bottom: 10px; }
 .chart-toggle button {
   padding: 5px 12px; border-radius: var(--radius); cursor: pointer;
@@ -2068,7 +2069,7 @@ function ConversionSchedule({ data, scenarioLabel, showReal, inflationRate }) {
 }
 
 /* ---- Chart Expand Overlay ---- */
-function ChartOverlay({ title, controls, onClose, children }) {
+function ChartOverlay({ title, caption, controls, onClose, children }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -2094,6 +2095,7 @@ function ChartOverlay({ title, controls, onClose, children }) {
         'aria-label': 'Close expanded chart'
       }, '\u00D7'),
       React.createElement('h3', null, title),
+      caption && React.createElement('p', { className: 'chart-caption' }, caption),
       controls,
       React.createElement('div', { className: 'chart-overlay-body' }, children)
     )
@@ -2261,6 +2263,7 @@ function Charts({ scenarioA, scenarioB, scenarioC }) {
     },
     {
       title: 'Total Cost of Retirement (Spending + Taxes)',
+      caption: 'How much you have to spend each year, and how much extra goes to taxes.',
       controls: () => {
         const toggleBtn = (key, label) => React.createElement('button', {
           className: costChartScenario === key ? 'active' : '',
@@ -2305,6 +2308,7 @@ function Charts({ scenarioA, scenarioB, scenarioC }) {
           onClick: () => setExpandedIdx(idx)
         },
           React.createElement('h3', null, entry.title),
+          entry.caption && React.createElement('p', { className: 'chart-caption' }, entry.caption),
           entry.controls && entry.controls(),
           React.createElement('div', { className: 'chart-container' }, entry.body())
         )
@@ -2312,6 +2316,7 @@ function Charts({ scenarioA, scenarioB, scenarioC }) {
     ),
     expandedIdx !== null && React.createElement(ChartOverlay, {
       title: chartEntries[expandedIdx].title,
+      caption: chartEntries[expandedIdx].caption,
       controls: chartEntries[expandedIdx].controls && chartEntries[expandedIdx].controls(),
       onClose: () => setExpandedIdx(null)
     }, chartEntries[expandedIdx].body())
