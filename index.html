@@ -1292,6 +1292,14 @@ const fmt = (n) => {
 const fmtPct = (n) => `${(n * 100).toFixed(0)}%`;
 const fmtRate = (n) => `${n.toFixed(1)}%`;
 
+/* Effective tax rate = all taxes / AGI. Returns null when AGI is too small
+ * to produce a meaningful ratio (avoids spikes from tiny denominators when
+ * capital gains tax or IRMAA dominate the numerator). */
+const EFFECTIVE_RATE_MIN_AGI = 1000;
+const effectiveRate = (row) => (row && row.agi >= EFFECTIVE_RATE_MIN_AGI)
+  ? (row.totalTax / row.agi) * 100
+  : null;
+
 /* ---- Collapsible Section ---- */
 function Collapsible({ title, summary, children, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -1873,7 +1881,7 @@ function ProjectionTable({ data, label, showReal, inflationRate }) {
     { name: 'Total Tax', tip: 'Sum of all taxes and penalties for this year: Fed Tax + State Tax + CG Tax + NIIT + HSA Pen. + Roth Pen. + IRMAA' },
     { name: 'Cum. Tax (from ' + startYear + ')', tip: 'Cumulative total of all taxes and penalties paid from ' + startYear + ' through this year' },
     { name: 'Marg. Bracket', tip: 'Marginal federal tax bracket — the rate applied to the last dollar of ordinary taxable income this year' },
-    { name: 'Eff. Rate', tip: 'Effective tax rate — Total Tax divided by Fed Taxable Inc. The blended rate actually paid on ordinary taxable income. Shown as "-" in years with zero taxable income' }
+    { name: 'Eff. Rate', tip: 'Effective tax rate — Total Tax divided by AGI. The blended rate actually paid on all income sources (including conversions, capital gains, and Social Security). Shown as "-" in years with negligible AGI, where the ratio is not meaningful' }
   ];
 
   const footnoteText = 'This table shows a year-by-year projection of the ' + label.toLowerCase() +
@@ -1891,6 +1899,7 @@ function ProjectionTable({ data, label, showReal, inflationRate }) {
           const rowClass = row.isConversionYear ? 'conversion-row' :
                           row.isRMDYear ? 'rmd-row' : '';
           const irmaaClass = row.irmaaSurcharge > 0 ? ' irmaa-flag' : '';
+          const effRate = effectiveRate(row);
           return React.createElement('tr', { key: row.year, className: rowClass + irmaaClass },
             React.createElement('td', null, row.year),
             React.createElement('td', null, row.age),
@@ -1920,9 +1929,7 @@ function ProjectionTable({ data, label, showReal, inflationRate }) {
             React.createElement('td', null, fmt(deflate(row.totalTax, i))),
             React.createElement('td', { style: { fontWeight: 600 } }, fmt(deflate(row.cumulativeTax, i))),
             React.createElement('td', null, fmtPct(row.marginalRate)),
-            React.createElement('td', null, row.taxableIncome > 0
-              ? fmtRate((row.totalTax / row.taxableIncome) * 100)
-              : '-')
+            React.createElement('td', null, effRate == null ? '-' : fmtRate(effRate))
           );
         })
       )
@@ -2055,9 +2062,6 @@ function Charts({ scenarioA, scenarioB, scenarioC }) {
     });
   });
 
-  const effectiveRate = (row) => (row && row.taxableIncome > 0)
-    ? (row.totalTax / row.taxableIncome) * 100
-    : null;
   const effectiveRateData = scenarioA.map((a, i) => ({
     age: a.age,
     noConversion: effectiveRate(a),
