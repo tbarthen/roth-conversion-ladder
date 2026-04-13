@@ -1872,7 +1872,8 @@ function ProjectionTable({ data, label, showReal, inflationRate }) {
     { name: 'IRMAA', tip: 'Medicare IRMAA surcharge (Parts B + D). Based on MAGI from 2 years prior. Applies at age 65+' },
     { name: 'Total Tax', tip: 'Sum of all taxes and penalties for this year: Fed Tax + State Tax + CG Tax + NIIT + HSA Pen. + Roth Pen. + IRMAA' },
     { name: 'Cum. Tax (from ' + startYear + ')', tip: 'Cumulative total of all taxes and penalties paid from ' + startYear + ' through this year' },
-    { name: 'Marg. Bracket', tip: 'Marginal federal tax bracket — the rate applied to the last dollar of ordinary taxable income this year' }
+    { name: 'Marg. Bracket', tip: 'Marginal federal tax bracket — the rate applied to the last dollar of ordinary taxable income this year' },
+    { name: 'Eff. Rate', tip: 'Effective tax rate — Total Tax divided by Fed Taxable Inc. The blended rate actually paid on ordinary taxable income. Shown as "-" in years with zero taxable income' }
   ];
 
   const footnoteText = 'This table shows a year-by-year projection of the ' + label.toLowerCase() +
@@ -1918,7 +1919,10 @@ function ProjectionTable({ data, label, showReal, inflationRate }) {
               : '-'),
             React.createElement('td', null, fmt(deflate(row.totalTax, i))),
             React.createElement('td', { style: { fontWeight: 600 } }, fmt(deflate(row.cumulativeTax, i))),
-            React.createElement('td', null, fmtPct(row.marginalRate))
+            React.createElement('td', null, fmtPct(row.marginalRate)),
+            React.createElement('td', null, row.taxableIncome > 0
+              ? fmtRate((row.totalTax / row.taxableIncome) * 100)
+              : '-')
           );
         })
       )
@@ -2051,8 +2055,19 @@ function Charts({ scenarioA, scenarioB, scenarioC }) {
     });
   });
 
+  const effectiveRate = (row) => (row && row.taxableIncome > 0)
+    ? (row.totalTax / row.taxableIncome) * 100
+    : null;
+  const effectiveRateData = scenarioA.map((a, i) => ({
+    age: a.age,
+    noConversion: effectiveRate(a),
+    optimized: effectiveRate(scenarioB[i]),
+    ...(scenarioC ? { custom: effectiveRate(scenarioC[i]) } : {})
+  }));
+
   const chartMargin = { top: 5, right: 20, bottom: 5, left: 20 };
   const tooltipFormatter = (value) => fmt(value);
+  const pctTooltipFormatter = (value) => value == null ? '-' : `${value.toFixed(1)}%`;
 
   return React.createElement('div', { className: 'charts-grid' },
     /* Chart 1: Cumulative Tax Comparison */
@@ -2131,6 +2146,25 @@ function Charts({ scenarioA, scenarioB, scenarioC }) {
             React.createElement(Area, { type: 'monotone', dataKey: 'rate32', stackId: '1', fill: '#db2777', stroke: '#db2777', name: '32%', fillOpacity: 0.8 }),
             React.createElement(Area, { type: 'monotone', dataKey: 'rate35', stackId: '1', fill: '#ea580c', stroke: '#ea580c', name: '35%', fillOpacity: 0.8 }),
             React.createElement(Area, { type: 'monotone', dataKey: 'rate37', stackId: '1', fill: '#dc2626', stroke: '#dc2626', name: '37%', fillOpacity: 0.8 })
+          )
+        )
+      )
+    ),
+
+    /* Chart 5: Effective Tax Rate Over Time */
+    React.createElement('div', { className: 'card' },
+      React.createElement('h3', null, 'Effective Tax Rate Over Time'),
+      React.createElement('div', { className: 'chart-container' },
+        React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
+          React.createElement(LineChart, { data: effectiveRateData, margin: chartMargin },
+            React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#e2e8f0' }),
+            React.createElement(XAxis, { dataKey: 'age', tick: { fontSize: 11 } }),
+            React.createElement(YAxis, { tickFormatter: v => `${v.toFixed(0)}%`, tick: { fontSize: 11 } }),
+            React.createElement(Tooltip, { formatter: pctTooltipFormatter }),
+            React.createElement(Legend, null),
+            React.createElement(Line, { type: 'monotone', dataKey: 'noConversion', stroke: '#ea580c', strokeWidth: 2, name: 'No Conversion', dot: false }),
+            React.createElement(Line, { type: 'monotone', dataKey: 'optimized', stroke: '#0d9488', strokeWidth: 2, name: 'Optimized', dot: false }),
+            scenarioC && React.createElement(Line, { type: 'monotone', dataKey: 'custom', stroke: '#7c3aed', strokeWidth: 2, name: 'Custom', dot: false })
           )
         )
       )
