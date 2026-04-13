@@ -2127,6 +2127,21 @@ function Charts({ scenarioA, scenarioB, scenarioC }) {
       }
     });
   });
+  /* Trim trailing empty years so meaningful bracket data isn't compressed
+   * into a fraction of the chart width. When conversions end early (e.g.
+   * 22% bracket scenario finishes by age 65), showing through age 98 wastes
+   * 30+ years of empty x-axis. Falls through to the full range when every
+   * year has data. */
+  const BRACKET_CHART_BUFFER_YEARS = 3;
+  const hasBracketData = (row) => Object.entries(row).some(([k, v]) => k !== 'age' && v > 0);
+  let lastBracketDataAge = bracketData.length > 0 ? bracketData[bracketData.length - 1].age : 0;
+  for (let i = bracketData.length - 1; i >= 0; i--) {
+    if (hasBracketData(bracketData[i])) {
+      lastBracketDataAge = bracketData[i].age;
+      break;
+    }
+  }
+  const trimmedBracketData = bracketData.filter(r => r.age <= lastBracketDataAge + BRACKET_CHART_BUFFER_YEARS);
 
   const effectiveRateData = scenarioA.map((a, i) => ({
     age: a.age,
@@ -2189,7 +2204,7 @@ function Charts({ scenarioA, scenarioB, scenarioC }) {
     {
       title: 'Income by Tax Bracket (Optimized Strategy)',
       body: () => React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
-        React.createElement(AreaChart, { data: bracketData, margin: chartMargin },
+        React.createElement(AreaChart, { data: trimmedBracketData, margin: chartMargin },
           React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#e2e8f0' }),
           React.createElement(XAxis, { dataKey: 'age', tick: { fontSize: 11 } }),
           React.createElement(YAxis, { tickFormatter: v => `$${(v/1000).toFixed(0)}k`, tick: { fontSize: 11 } }),
