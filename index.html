@@ -929,9 +929,14 @@ function runProjection(inputs, scenario, customConversion = 0, targetBracketRate
   const rothGrowth = clamp(n(inputs.rothGrowth), -10, 30, 'rothGrowth');
   const taxableGrowth = clamp(n(inputs.taxableGrowth), -10, 30, 'taxableGrowth');
   const dividendYield = clamp(n(inputs.dividendYield), 0, 10, 'dividendYield');
-  const taxableCostBasis = inputs.taxableCostBasis !== '' && inputs.taxableCostBasis !== undefined
+  /* Clamp cost basis to [0, taxableBalance]. A basis above the balance would
+   * drive basisRatio > 1, producing negative realized gains and a compounding
+   * negative taxBasis across years. User-visible warning happens once in
+   * onCalculate so we don't spam the console per-scenario. */
+  const rawBasis = inputs.taxableCostBasis !== '' && inputs.taxableCostBasis !== undefined
     ? n(inputs.taxableCostBasis)
-    : taxableBalance; /* Default: basis = balance (no embedded gains) */
+    : taxableBalance;
+  const taxableCostBasis = Math.min(Math.max(rawBasis, 0), taxableBalance);
   const inflationRate = n(inputs.inflationRate);
   const bracketInflation = n(inputs.bracketInflation);
 
@@ -1579,8 +1584,16 @@ const getFieldByPath = (obj, path) => {
   return cursor;
 };
 
+const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
 const setFieldByPath = (obj, path, value) => {
   const parts = path.split('.');
+  /* Refuse any path that could reach the prototype chain. Today only
+   * internal INPUT_FIELD_PATHS are passed in, so this is a safety net
+   * against future regressions that might route user-controlled keys here. */
+  if (parts.some(p => UNSAFE_PATH_SEGMENTS.has(p))) {
+    console.warn('Rejected unsafe field path:', path);
+    return;
+  }
   let cursor = obj;
   for (let i = 0; i < parts.length - 1; i++) {
     if (cursor[parts[i]] == null || typeof cursor[parts[i]] !== 'object') {
@@ -1708,6 +1721,12 @@ function InputForm({ inputs, setInputs, onCalculate, ratesFallback, hasSavedProf
     setInputs(prev => ({
       ...prev,
       ...profile.data,
+      /* Deep-merge nested objects so a partial profile doesn't zero out
+       * unspecified nested fields (e.g. roth/taxable/hsa contributions). */
+      annualContributions: {
+        ...prev.annualContributions,
+        ...(profile.data.annualContributions || {})
+      },
       stateAbbr: prev.stateAbbr,
       stateTaxRate: prev.stateTaxRate,
       preRetirementGrowth: prev.preRetirementGrowth,
@@ -1739,6 +1758,10 @@ function InputForm({ inputs, setInputs, onCalculate, ratesFallback, hasSavedProf
 
   const onImportFile = (file) => {
     if (!file) return;
+    if (file.size > 1_000_000) {
+      alert('That file is too large. Profile exports from this app are under 10 KB.');
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
@@ -2815,14 +2838,26 @@ function App() {
       .catch(() => { setRatesFallback(true); });
   }, []);
 
+  const quotaWarningShownRef = useRef(false);
   const saveCurrentInputs = useCallback(() => {
-    if (saveProfileToStorage(inputs)) setHasSavedProfile(true);
+    const ok = saveProfileToStorage(inputs);
+    if (ok) {
+      setHasSavedProfile(true);
+    } else if (!quotaWarningShownRef.current) {
+      quotaWarningShownRef.current = true;
+      alert("Couldn't save profile to browser storage (quota full or private mode). Use Export to keep a backup.");
+    }
   }, [inputs]);
 
   const onCalculate = useCallback(() => {
     if (!inputs.currentAge || !inputs.annualSpending) {
       alert('Please fill in at least your current age and annual spending before calculating.');
       return;
+    }
+    const basisNum = Number(inputs.taxableCostBasis);
+    const balanceNum = Number(inputs.taxableBalance);
+    if (inputs.taxableCostBasis !== '' && isFinite(basisNum) && isFinite(balanceNum) && basisNum > balanceNum) {
+      alert(`Taxable cost basis (${basisNum.toLocaleString()}) was higher than your taxable balance (${balanceNum.toLocaleString()}). It has been clamped down to the balance amount for this calculation.`);
     }
     saveCurrentInputs();
     setCalculating(true);

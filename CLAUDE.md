@@ -11,6 +11,8 @@ Single-page React app (no build tools) that calculates optimal Roth conversion l
 - `scripts/rates.json` — Canonical source for rate data
 - `scripts/update-state-tax-rates.js` — Syncs rates.json into data/ and patches the embedded fallback in index.html
 
+**CSP note:** `unsafe-eval` and `unsafe-inline` are accepted trade-offs of the no-build-tools / in-browser Babel architecture — Babel standalone transforms JSX at runtime via `eval`. Removing them would require adding a build step.
+
 ## Deployment Workflow
 
 **Claude Code cannot push directly to `main`.** All pushes must go to a `claude/*` branch.
