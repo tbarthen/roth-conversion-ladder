@@ -417,3 +417,15 @@ test('no-conversion baseline: once penalty-free, spending comes from the traditi
   assert.ok(conv[0].rothWithdrawal > 0);
   assert.equal(conv[0].tradWithdrawal, 0);
 });
+
+test('state: California adds its senior credit for each person from age 65', () => {
+  const opts = { retirementAge: 60, stateAbbr: 'CA', pensionIncome: 40000, inflationRate: 0, bracketInflation: 0 };
+  const couple = run(baseInputs({ ...opts, currentAge: 66, filingStatus: 'marriedFilingJointly', spouseAge: 63, spouseLifeExpectancy: 90 }));
+  near(assert, couple[0].taxDetail.stateCredit, 306 + 153, 0.01); /* personal 2 x 153, senior for the 66-year-old */
+  near(assert, couple[1].taxDetail.stateCredit, 459, 0.01);       /* spouse 64 */
+  near(assert, couple[2].taxDetail.stateCredit, 612, 0.01);       /* spouse 65 */
+  near(assert, run(baseInputs({ ...opts, currentAge: 64 }))[0].taxDetail.stateCredit, 153, 0.01);
+  near(assert, run(baseInputs({ ...opts, currentAge: 65 }))[0].taxDetail.stateCredit, 306, 0.01);
+  /* Nevada-style no-tax state and a state without a senior credit are unaffected */
+  near(assert, run(baseInputs({ ...opts, stateAbbr: 'NY', currentAge: 70 }))[0].taxDetail.stateCredit, 0, 0.01);
+});

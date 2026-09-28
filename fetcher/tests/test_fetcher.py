@@ -94,6 +94,8 @@ class Validation(unittest.TestCase):
         self.assertProblem(lambda r: pa(r)["retirementExclusion"].__setitem__("iraFromAge", 90), "PA: retirementExclusion")
         co = lambda r: next(s for s in r["items"]["stateIncomeTax"]["value"]["states"] if s["abbr"] == "CO")
         self.assertProblem(lambda r: co(r)["socialSecurityExemption"].__setitem__("fromAge", 30), "CO: socialSecurityExemption")
+        ca = lambda r: next(s for s in r["items"]["stateIncomeTax"]["value"]["states"] if s["abbr"] == "CA")
+        self.assertProblem(lambda r: ca(r)["seniorCredit"].__setitem__("perPerson", -1), "CA: seniorCredit")
         self.assertProblem(lambda r: co(r)["socialSecurityExemption"].__setitem__("source", "http://x"), "CO: socialSecurityExemption")
         self.assertProblem(lambda r: co(r).__setitem__("taxesSocialSecurity", False), "CO: socialSecurityExemption")
         self.assertProblem(lambda r: r.__setitem__("lastChecked", "yesterday"), "lastChecked")
@@ -411,6 +413,7 @@ class Updater(unittest.TestCase):
         self.assertNotIn("retirementExclusion", states["CA"])
         self.assertEqual(states["CO"]["socialSecurityExemption"], old["CO"]["socialSecurityExemption"])
         self.assertNotIn("socialSecurityExemption", states["MN"])
+        self.assertEqual(states["CA"]["seniorCredit"], old["CA"]["seniorCredit"])
         self.assertEqual(list(states["CO"]), ["abbr", "name", "rate", "taxesSocialSecurity", "socialSecurityExemption",
                                               "standardDeduction", "personalExemption", "personalCredit", "brackets"])
         self.assertEqual(states["CA"]["personalCredit"], {"single": 160, "marriedFilingJointly": 320})

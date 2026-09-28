@@ -295,3 +295,24 @@ test('Social Security full retirement age and claiming adjustments', () => {
   near(assert, E.ssClaimingFactor(td, 1950, 72), 1.32, 1e-9); /* credits stop at 70 */
   near(assert, E.ssClaimingFactor(td, 1960, 60), 0.70, 1e-9); /* clamped to 62 */
 });
+
+test('state: California senior exemption credit, per person 65 or older', () => {
+  /* FTB Form 540 line 9: same amount per person as the personal credit (153 in the fixture year) */
+  const ca = stateOf('CA');
+  assert.deepEqual(E.stateAllowances(td, ca, S, Y, 0, 1), { deduction: 5540, credit: 306 });
+  assert.deepEqual(E.stateAllowances(td, ca, J, Y, 0, 1), { deduction: 11080, credit: 459 });
+  assert.deepEqual(E.stateAllowances(td, ca, J, Y, 0, 2), { deduction: 11080, credit: 612 });
+  assert.deepEqual(E.stateAllowances(td, ca, J, Y, 0, 5), { deduction: 11080, credit: 612 }); /* at most 2 */
+  assert.deepEqual(E.stateAllowances(td, stateOf('AL'), J, Y, 0, 2), { deduction: 11500, credit: 0 }); /* no senior credit */
+  /* single, 70, IRA 50,000: 50,000 - 5,540 = 44,460 CA taxable.
+     1% x 11,079 = 110.79; 2% x 15,185 = 303.70; 4% x 15,188 = 607.52; 6% x 3,008 = 180.48
+     = 1,202.49 before credits; less 153 personal + 153 senior = 896.49 (1,049.49 without the senior credit) */
+  const tax = (seniors) => {
+    const a = E.stateAllowances(td, ca, S, Y, 0, seniors);
+    return E.computeYearTax(td, { filingStatus: S, year: Y, age: 70, iraDistributions: 50000,
+      stateBrackets: ca.brackets.single, stateTaxesSocialSecurity: false, stateDeduction: a.deduction, stateCredit: a.credit }).stateTax;
+  };
+  near(assert, tax(1), 896.49);
+  near(assert, tax(0), 1049.49);
+  assert.equal(ca.seniorCredit.fromAge, 65);
+});

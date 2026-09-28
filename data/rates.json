@@ -700,6 +700,12 @@
             "standardDeduction": {"single": 5706, "marriedFilingJointly": 11412},
             "personalExemption": {"single": 0, "marriedFilingJointly": 0},
             "personalCredit": {"single": 153, "marriedFilingJointly": 306},
+            "seniorCredit": {
+              "fromAge": 65,
+              "perPerson": 153,
+              "sourceName": "California FTB 2025 Form 540, line 9: senior exemption credit, same amount per person as the personal exemption credit (line 7, $153)",
+              "source": "https://www.ftb.ca.gov/forms/2025/2025-540.pdf"
+            },
             "brackets": {
               "single": [
                 [0.01, 11079],

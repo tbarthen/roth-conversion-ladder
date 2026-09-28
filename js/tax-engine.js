@@ -230,6 +230,15 @@ const ITEM_VALIDATORS = {
           err(`${s.abbr}: socialSecurityExemption needs fromAge (55-75), sourceName and an https source, on a state whose taxesSocialSecurity is true`);
         }
       }
+      if (s.seniorCredit !== undefined) {
+        const x = s.seniorCredit;
+        if (!isObj(x) || !isInt(x.fromAge) || x.fromAge < 55 || x.fromAge > 75
+            || !isNum(x.perPerson) || x.perPerson < 0 || x.perPerson > 1e4
+            || typeof x.sourceName !== 'string' || !x.sourceName
+            || typeof x.source !== 'string' || !/^https:\/\/[^\s]+$/.test(x.source)) {
+          err(`${s.abbr}: seniorCredit needs fromAge (55-75), perPerson (0-10000), sourceName and an https source`);
+        }
+      }
       if (s.retirementExclusion !== undefined) {
         const x = s.retirementExclusion;
         if (!isObj(x) || !isNum(x.iraFromAge) || x.iraFromAge < 0 || x.iraFromAge > 75
@@ -544,12 +553,15 @@ const stateFilingStatus = (filingStatus) => filingStatus === 'marriedFilingJoint
  * filing status and year. Indexed like the state brackets. Married filing
  * separately uses the single amounts.
  */
-function stateAllowances(td, state, filingStatus, year, rate) {
+function stateAllowances(td, state, filingStatus, year, rate, seniors) {
   const fs = stateFilingStatus(filingStatus);
   const idx = (v) => indexAmount(v, td.statesYear, year, rate);
+  /* seniors: people on the return at or past state.seniorCredit.fromAge
+     (California's senior exemption credit, per person). */
+  const n = state.seniorCredit ? Math.max(0, Math.min(2, Math.floor(toNum(seniors) || 0))) : 0;
   return {
     deduction: idx(state.standardDeduction[fs] + state.personalExemption[fs]),
-    credit: idx(state.personalCredit[fs])
+    credit: idx(state.personalCredit[fs] + (n ? n * state.seniorCredit.perPerson : 0))
   };
 }
 
@@ -996,7 +1008,9 @@ function runProjection(rawInputs, scenario, opts, td) {
     const stateBrackets = inp.stateBrackets
       ? adjustedBrackets(inp.stateBrackets, td.statesYear, stateFilingStatus(filingStatus), year, bInfl)
       : null;
-    const stateAllow = inp.state ? stateAllowances(td, inp.state, filingStatus, year, bInfl) : null;
+    const seniorAge = inp.state && inp.state.seniorCredit ? inp.state.seniorCredit.fromAge : null;
+    const stateSeniors = seniorAge === null ? 0 : (age >= seniorAge ? 1 : 0) + (isMFJ && sAge >= seniorAge ? 1 : 0);
+    const stateAllow = inp.state ? stateAllowances(td, inp.state, filingStatus, year, bInfl, stateSeniors) : null;
 
     const taxParams = (conv, w) => ({
       filingStatus, year, age, spouseAge: spouseForTax,

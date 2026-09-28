@@ -71,6 +71,8 @@ test('validation rejects broken documents', () => {
   bad(r => { r.items.stateIncomeTax.value.states.find(s => s.abbr === 'IL').retirementExclusion.iraFromAge = 90; }, /IL: retirementExclusion/);
   bad(r => { r.items.stateIncomeTax.value.states.find(s => s.abbr === 'MS').retirementExclusion.conversions = 'yes'; }, /MS: retirementExclusion/);
   bad(r => { r.items.stateIncomeTax.value.states.find(s => s.abbr === 'CO').socialSecurityExemption.fromAge = 30; }, /CO: socialSecurityExemption/);
+  bad(r => { r.items.stateIncomeTax.value.states.find(s => s.abbr === 'CA').seniorCredit.perPerson = -1; }, /CA: seniorCredit/);
+  bad(r => { r.items.stateIncomeTax.value.states.find(s => s.abbr === 'CA').seniorCredit.source = 'http://x'; }, /CA: seniorCredit/);
   bad(r => { r.items.stateIncomeTax.value.states.find(s => s.abbr === 'CO').socialSecurityExemption.source = 'http://x'; }, /CO: socialSecurityExemption/);
   bad(r => { const co = r.items.stateIncomeTax.value.states.find(s => s.abbr === 'CO'); co.taxesSocialSecurity = false; }, /CO: socialSecurityExemption/);
   bad(r => { r.lastChecked = '2026-13-45'; }, /lastChecked/);

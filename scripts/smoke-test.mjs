@@ -81,7 +81,8 @@ async function newPage({ ratesOverride, embeddedOverride, viewport } = {}) {
   if (embeddedOverride) {
     await page.route(BASE, async route => {
       const html = await readFile(path.join(ROOT, 'index.html'), 'utf8');
-      const patched = html.replace(/(<script type="application\/json" id="embedded-rates">)[\s\S]*?(<\/script>)/, `$1\n${JSON.stringify(embeddedOverride)}\n$2`);
+      /* function replacement: a '$' in the data (e.g. "$153") must not be read as $1/$2 */
+      const patched = html.replace(/(<script type="application\/json" id="embedded-rates">)[\s\S]*?(<\/script>)/, (_, open, close) => `${open}\n${JSON.stringify(embeddedOverride)}\n${close}`);
       route.fulfill({ status: 200, contentType: 'text/html', body: patched });
     });
   }

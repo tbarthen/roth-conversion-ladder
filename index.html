@@ -719,6 +719,12 @@
             "standardDeduction": {"single": 5706, "marriedFilingJointly": 11412},
             "personalExemption": {"single": 0, "marriedFilingJointly": 0},
             "personalCredit": {"single": 153, "marriedFilingJointly": 306},
+            "seniorCredit": {
+              "fromAge": 65,
+              "perPerson": 153,
+              "sourceName": "California FTB 2025 Form 540, line 9: senior exemption credit, same amount per person as the personal exemption credit (line 7, $153)",
+              "source": "https://www.ftb.ca.gov/forms/2025/2025-540.pdf"
+            },
             "brackets": {
               "single": [
                 [0.01, 11079],
@@ -3219,7 +3225,7 @@ function PlainSummary({ result, summary: s, inputs, rates, inflationRate }) {
   const override = inputs.stateTaxRateOverride !== '' && inputs.stateTaxRateOverride != null;
   notes.push({ text: override
     ? `State tax: a flat ${inputs.stateTaxRateOverride}% (your override).`
-    : state ? `State tax: ${state.name}’s ${rates.items.stateIncomeTax.effectiveYear} brackets, standard deduction and exemptions${state.retirementExclusion ? '; retirement income it exempts is left out' : ''}${state.socialSecurityExemption ? `; Social Security is left out from age ${state.socialSecurityExemption.fromAge}` : ''}.` : 'State tax: none (no state selected).' });
+    : state ? `State tax: ${state.name}’s ${rates.items.stateIncomeTax.effectiveYear} brackets, standard deduction and exemptions${state.retirementExclusion ? '; retirement income it exempts is left out' : ''}${state.socialSecurityExemption ? `; Social Security is left out from age ${state.socialSecurityExemption.fromAge}` : ''}${state.seniorCredit ? `; an extra credit for each person ${state.seniorCredit.fromAge} or older` : ''}.` : 'State tax: none (no state selected).' });
 
   return React.createElement('div', { className: 'plain-summary' },
     runOut && React.createElement('div', { className: 'plain-alert', role: 'alert' },

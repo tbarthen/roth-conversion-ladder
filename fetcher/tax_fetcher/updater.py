@@ -29,7 +29,7 @@ STATE_ALLOWANCE_KEYS = ("standardDeduction", "personalExemption", "personalCredi
 def _merge_states(prior_value, parsed):
     """Build a new stateIncomeTax value from parsed rates and deductions,
     keeping names, the Social Security flag and the hand-maintained
-    Social Security age exemptions and retirement-income exclusions from the
+    Social Security age exemptions, senior credits and retirement-income exclusions from the
     prior data (overrides are dropped)."""
     states, missing = [], []
     for s in prior_value["states"]:
@@ -41,6 +41,8 @@ def _merge_states(prior_value, parsed):
         if "socialSecurityExemption" in s:
             new["socialSecurityExemption"] = s["socialSecurityExemption"]
         new.update({k: p[k] for k in STATE_ALLOWANCE_KEYS})
+        if "seniorCredit" in s:
+            new["seniorCredit"] = s["seniorCredit"]
         if "retirementExclusion" in s:
             new["retirementExclusion"] = s["retirementExclusion"]
         new["brackets"] = p["brackets"]

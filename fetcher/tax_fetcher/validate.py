@@ -265,6 +265,13 @@ def _v_states(v, err):
                     or not isinstance(x.get("source"), str) or not _URL.match(x["source"]):
                 err(f"{ab}: socialSecurityExemption needs fromAge (55-75), sourceName and an https source, "
                     "on a state whose taxesSocialSecurity is true")
+        if "seniorCredit" in s:
+            x = s["seniorCredit"]
+            if not isinstance(x, dict) or not isinstance(x.get("fromAge"), int) or not 55 <= x["fromAge"] <= 75 \
+                    or not _num(x.get("perPerson")) or not 0 <= x["perPerson"] <= 1e4 \
+                    or not isinstance(x.get("sourceName"), str) or not x["sourceName"] \
+                    or not isinstance(x.get("source"), str) or not _URL.match(x["source"]):
+                err(f"{ab}: seniorCredit needs fromAge (55-75), perPerson (0-10000), sourceName and an https source")
         if "retirementExclusion" in s:
             x = s["retirementExclusion"]
             if not isinstance(x, dict) or not _num(x.get("iraFromAge")) or not 0 <= x["iraFromAge"] <= 75 \
