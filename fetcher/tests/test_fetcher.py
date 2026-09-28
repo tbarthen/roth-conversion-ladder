@@ -1,3 +1,4 @@
+import re
 """Unit tests for the tax-data fetcher (stdlib unittest, no network).
 
 Run from the repo root:  python3 -m unittest discover -s fetcher/tests -t fetcher
@@ -122,7 +123,9 @@ class Parsers(unittest.TestCase):
         self.assertEqual(parsed, load_rates()["items"]["medicareIrmaa"]["value"])
 
     def test_irmaa_missing_part_d_is_an_error(self):
-        html = fixture("irmaa_2026.html").split("<h2>")[0] + "</body></html>"
+        html = re.sub(r"<table\b(?:(?!</table>).)*?Part D(?:(?!</table>).)*</table>", "",
+                      fixture("irmaa_2026.html"), flags=re.S | re.I)
+        self.assertNotIn("Part D</", html.replace(" ", ""))
         with self.assertRaises(sources.ParseError):
             sources.parse_irmaa(html, 2026)
 
@@ -130,14 +133,26 @@ class Parsers(unittest.TestCase):
         parsed = sources.parse_states(fixture("states_2026.html"), 2026)
         self.assertEqual(len(parsed), 51)
         for s in load_rates()["items"]["stateIncomeTax"]["value"]["states"]:
+            if s.get("override"):
+                continue   # hand-corrected for a 2026 mid-year law the page predates
             self.assertAlmostEqual(parsed[s["abbr"]]["rate"], s["rate"], places=6, msg=s["abbr"])
-            self.assertEqual(parsed[s["abbr"]]["brackets"]["single"], s["brackets"]["single"], s["abbr"])
+            self.assertEqual(len(parsed[s["abbr"]]["brackets"]["single"]), len(s["brackets"]["single"]), s["abbr"])
         self.assertEqual(parsed["TX"]["brackets"]["single"], [[0, None]])
+        # Continuation rows ("- Alabama") carry the higher brackets.
+        self.assertEqual(parsed["AL"]["brackets"]["single"], [[0.02, 500], [0.04, 3000], [0.05, None]])
+        self.assertEqual(len(parsed["DC"]["brackets"]["single"]), 7)
+        # A "- Iowa" row with no rates must not wipe Iowa's flat rate.
+        self.assertEqual(parsed["IA"]["brackets"]["single"], [[0.038, None]])
+        # Washington taxes capital gains only: nothing on wages, IRA withdrawals or conversions.
+        self.assertEqual(parsed["WA"], {"rate": 0, "brackets": {"single": [[0, None]], "marriedFilingJointly": [[0, None]]}})
 
     def test_state_name_aliases(self):
         self.assertEqual(sources._state_from_cell("N.Y. (a, b, c)"), "NY")
         self.assertEqual(sources._state_from_cell("W.Va."), "WV")
         self.assertEqual(sources._state_from_cell("District of Columbia*"), "DC")
+        self.assertEqual(sources._state_from_cell("Washington DC (u)"), "DC")
+        self.assertEqual(sources._state_from_cell("- Alabama"), "AL")
+        self.assertEqual(sources._state_from_cell("Washington (n, ss, tt)"), "WA")
         self.assertIsNone(sources._state_from_cell("(a) footnote text"))
 
 

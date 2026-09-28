@@ -278,6 +278,10 @@ def parse_irmaa(html, year):
     part_b, part_d = {}, {}
     standard = None
     for table in tables:
+        # CMS also publishes "Part B Immunosuppressive Drug Coverage Only" tables
+        # with the same thresholds; only full Part B and Part D tables apply here.
+        if table and table[0] and "immunosuppressive" in table[0][0].lower():
+            continue
         rows = [r for r in table if r and _THRESH.match(r[0])]
         if len(rows) < 2:
             continue
@@ -320,7 +324,7 @@ def parse_irmaa(html, year):
 STATE_NAMES = {
     "AL": ("alabama", "ala."), "AK": ("alaska",), "AZ": ("arizona", "ariz."), "AR": ("arkansas", "ark."),
     "CA": ("california", "calif."), "CO": ("colorado", "colo."), "CT": ("connecticut", "conn."),
-    "DE": ("delaware", "del."), "DC": ("district of columbia", "d.c."), "FL": ("florida", "fla."),
+    "DE": ("delaware", "del."), "DC": ("district of columbia", "d.c.", "washington dc", "washington d.c.", "dc"), "FL": ("florida", "fla."),
     "GA": ("georgia", "ga."), "HI": ("hawaii",), "ID": ("idaho",), "IL": ("illinois", "ill."),
     "IN": ("indiana", "ind."), "IA": ("iowa",), "KS": ("kansas", "kans.", "kan."), "KY": ("kentucky", "ky."),
     "LA": ("louisiana", "la."), "ME": ("maine",), "MD": ("maryland", "md."), "MA": ("massachusetts", "mass."),
@@ -339,7 +343,8 @@ _LOOKUP = {alias: abbr for abbr, names in STATE_NAMES.items() for alias in names
 
 
 def _state_from_cell(cell):
-    name = re.sub(r"\(.*?\)|\*|\d", "", cell).strip().lower()
+    # Continuation rows for a state's higher brackets are labelled "- Alabama".
+    name = re.sub(r"\(.*?\)|\*|\d", "", cell).strip().lstrip("-\u2013\u2014 ").lower()
     name = " ".join(name.split())
     return _LOOKUP.get(name)
 
@@ -386,7 +391,7 @@ def parse_states(html, year):
     _require_year(text, year)
     best = {}
     for table in tables:
-        found, current = {}, None
+        found, current, gains_only = {}, None, set()
         header = next((r for r in table if any("single" in c.lower() for c in r)
                        and any(("married" in c.lower() or "joint" in c.lower()) for c in r)), None)
         single_cols = [i for i, c in enumerate(header or []) if "single" in c.lower()]
@@ -395,9 +400,20 @@ def parse_states(html, year):
             if not row or row is header:
                 continue
             abbr = _state_from_cell(row[0]) if row[0].strip() else None
+            continuation = row[0].strip()[:1] in ("-", "\u2013", "\u2014")
             if abbr:
+                if abbr in gains_only:
+                    current = None   # further rows of a capital-gains-only state
+                    continue
+                if any("capital gains" in c.lower() for c in row[1:]):
+                    # e.g. Washington: no tax on wages, IRA withdrawals or conversions
+                    gains_only.add(abbr)
+                    found[abbr] = {"single": [(0.0, 0.0)], "joint": [(0.0, 0.0)]}
+                    current = None
+                    continue
                 current = abbr
-                found[current] = {"single": [], "joint": []}
+                if not continuation or abbr not in found:
+                    found[current] = {"single": [], "joint": []}
             elif row[0].strip():
                 current = None   # footnote / header row
                 continue
