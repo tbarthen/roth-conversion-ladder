@@ -18,6 +18,21 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Nothing reaches main (and the live site) unless the tax math,
+      # the rates data and the fetcher all pass their tests.
+      - name: Test tax engine and rates data
+        run: |
+          node scripts/sync-rates.js --check
+          node --test tests/*.test.js
+
+      - name: Test fetcher
+        run: python3 -m unittest discover -s fetcher/tests -t fetcher
+
       - name: Configure git
         run: |
           git config user.name "github-actions[bot]"
