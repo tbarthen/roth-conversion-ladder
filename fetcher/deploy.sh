@@ -59,6 +59,22 @@ gcloud functions deploy "$FUNCTION" \
   --set-env-vars="GITHUB_REPO=${REPO},ALLOWED_ORIGIN=${ORIGIN}" \
   --set-secrets="GITHUB_TOKEN=tax-fetcher-github-token:latest,CHECK_SECRET=tax-fetcher-check-secret:latest"
 
+echo "==> Setting image cleanup policy (keep latest 3, delete older than 1 day)"
+# Each deploy stores a container image in gcf-artifacts; without this, old
+# images accumulate past the 0.5 GB free tier and bill monthly.
+POLICY_FILE="$(mktemp)"
+cat > "$POLICY_FILE" <<'JSON'
+[
+  {"name": "delete-older-than-1d", "action": {"type": "Delete"},
+   "condition": {"tagState": "any", "olderThan": "1d"}},
+  {"name": "keep-latest-3", "action": {"type": "Keep"},
+   "mostRecentVersions": {"keepCount": 3}}
+]
+JSON
+gcloud artifacts repositories set-cleanup-policies gcf-artifacts \
+  --location="$REGION" --policy="$POLICY_FILE" --no-dry-run >/dev/null
+rm -f "$POLICY_FILE"
+
 URL="$(gcloud functions describe "$FUNCTION" --gen2 --region="$REGION" --format='value(serviceConfig.uri)')"
 SECRET="$(gcloud secrets versions access latest --secret=tax-fetcher-check-secret)"
 
