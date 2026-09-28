@@ -26,7 +26,16 @@ def fixture(name):
 
 
 def load_rates():
+    """The live data/rates.json (format and validity checks only)."""
     with open(os.path.join(ROOT, "data", "rates.json"), encoding="utf-8") as f:
+        return json.load(f)
+
+
+def load_fixture_rates():
+    """A frozen copy of the 2026 figures (tests/fixtures/rates-2026.json), so
+    the parser and updater tests keep working after the live file moves to a
+    new tax year."""
+    with open(os.path.join(ROOT, "tests", "fixtures", "rates-2026.json"), encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -58,6 +67,7 @@ class FormatAndEmbed(unittest.TestCase):
 class Validation(unittest.TestCase):
     def test_committed_rates_are_valid(self):
         self.assertEqual(validate_rates(load_rates()), [])
+        self.assertEqual(validate_rates(load_fixture_rates()), [])
 
     def assertProblem(self, mutate, needle):
         r = load_rates()
@@ -88,13 +98,26 @@ class Validation(unittest.TestCase):
                                               {"states": [{"abbr": "OH", "rate": 2.75}, {"abbr": "TX", "rate": 0}]})), 1)
         self.assertEqual(len(compare_to_prior("stateIncomeTax", states_old,
                                               {"states": [{"abbr": "OH", "rate": 3.4}, {"abbr": "TX", "rate": 1}]})), 1)
+        # Brackets are compared too: a state that lost a bracket row (a partial
+        # scrape) or whose bounds jumped is a problem, not a silent update.
+        ks_old = {"states": [{"abbr": "KS", "rate": 5.58, "brackets": {
+            "single": [[0.052, 23000], [0.0558, None]], "marriedFilingJointly": [[0.052, 46000], [0.0558, None]]}}]}
+        ks_lost_row = {"states": [{"abbr": "KS", "rate": 5.2, "brackets": {
+            "single": [[0.052, None]], "marriedFilingJointly": [[0.052, None]]}}]}
+        self.assertTrue(any("brackets" in p for p in compare_to_prior("stateIncomeTax", ks_old, ks_lost_row)))
+        ks_indexed = copy.deepcopy(ks_old)
+        ks_indexed["states"][0]["brackets"]["single"][0][1] = 23700
+        self.assertEqual(compare_to_prior("stateIncomeTax", ks_old, ks_indexed), [])
+        ks_jump = copy.deepcopy(ks_old)
+        ks_jump["states"][0]["brackets"]["marriedFilingJointly"][0][1] = 23000
+        self.assertEqual(len(compare_to_prior("stateIncomeTax", ks_old, ks_jump)), 1)
         self.assertFalse(differs(old, copy.deepcopy(old)))
         self.assertTrue(differs(old, {"single": [[0.1, 10001], [0.2, None]]}))
 
 
 class Parsers(unittest.TestCase):
     def test_federal_same_year_matches_committed_data(self):
-        items = load_rates()["items"]
+        items = load_fixture_rates()["items"]
         parsed = sources.parse_federal(fixture("federal_2026.html"), 2026)
         for key in ("federalBrackets", "standardDeduction", "additionalStandardDeduction65", "capitalGainsBrackets"):
             self.assertEqual(parsed[key], items[key]["value"], key)
@@ -120,7 +143,7 @@ class Parsers(unittest.TestCase):
 
     def test_irmaa_matches_committed_data(self):
         parsed = sources.parse_irmaa(fixture("irmaa_2026.html"), 2026)
-        self.assertEqual(parsed, load_rates()["items"]["medicareIrmaa"]["value"])
+        self.assertEqual(parsed, load_fixture_rates()["items"]["medicareIrmaa"]["value"])
 
     def test_irmaa_missing_part_d_is_an_error(self):
         html = re.sub(r"<table\b(?:(?!</table>).)*?Part D(?:(?!</table>).)*</table>", "",
@@ -132,7 +155,7 @@ class Parsers(unittest.TestCase):
     def test_states_parse_all_51_with_matching_top_rates(self):
         parsed = sources.parse_states(fixture("states_2026.html"), 2026)
         self.assertEqual(len(parsed), 51)
-        for s in load_rates()["items"]["stateIncomeTax"]["value"]["states"]:
+        for s in load_fixture_rates()["items"]["stateIncomeTax"]["value"]["states"]:
             if s.get("override"):
                 continue   # hand-corrected for a 2026 mid-year law the page predates
             self.assertAlmostEqual(parsed[s["abbr"]]["rate"], s["rate"], places=6, msg=s["abbr"])
@@ -145,6 +168,19 @@ class Parsers(unittest.TestCase):
         self.assertEqual(parsed["IA"]["brackets"]["single"], [[0.038, None]])
         # Washington taxes capital gains only: nothing on wages, IRA withdrawals or conversions.
         self.assertEqual(parsed["WA"], {"rate": 0, "brackets": {"single": [[0, None]], "marriedFilingJointly": [[0, None]]}})
+
+    def test_states_missing_joint_brackets_is_a_parse_error(self):
+        # The page has joint columns, but one state's joint cells are blank:
+        # never fall back to the single brackets silently.
+        out = []
+        for ln in fixture("states_2026.html").split("\n"):
+            if "<strong>California" in ln or ln.strip().startswith("<td>- California"):
+                cells = re.findall(r"<td>.*?</td>", ln)
+                cells[4] = cells[5] = cells[6] = "<td></td>"
+                ln = "\t" + "".join(cells)
+            out.append(ln)
+        with self.assertRaises(sources.ParseError):
+            sources.parse_states("\n".join(out), 2026)
 
     def test_state_name_aliases(self):
         self.assertEqual(sources._state_from_cell("N.Y. (a, b, c)"), "NY")
@@ -204,7 +240,7 @@ class Updater(unittest.TestCase):
         return gh, result
 
     def test_same_year_recheck_commits_new_check_date_only(self):
-        rates = load_rates()
+        rates = load_fixture_rates()
         today = datetime.date(2026, 10, 28)
         gh, result = self.run_check(rates, today, pages_for(2026, fixture("federal_2026.html"),
                                                             fixture("irmaa_2026.html"), fixture("states_2026.html")))
@@ -220,7 +256,7 @@ class Updater(unittest.TestCase):
         self.assertEqual(gh.issues, [])
 
     def test_already_checked_today_does_not_commit(self):
-        rates = load_rates()
+        rates = load_fixture_rates()
         today = datetime.date.fromisoformat(rates["lastChecked"])
         gh, result = self.run_check(rates, today, pages_for(2026, fixture("federal_2026.html"),
                                                             fixture("irmaa_2026.html"), fixture("states_2026.html")))
@@ -228,7 +264,7 @@ class Updater(unittest.TestCase):
         self.assertEqual(gh.commits, [])
 
     def test_new_year_updates_federal_and_carries_statutory_items(self):
-        rates = load_rates()
+        rates = load_fixture_rates()
         gh, result = self.run_check(rates, datetime.date(2027, 1, 5), pages_for(2027, fixture("federal_2027.html")))
         self.assertEqual(result["status"], "updated", result)
         new = json.loads(gh.commits[0][2]["data/rates.json"])
@@ -242,7 +278,7 @@ class Updater(unittest.TestCase):
         self.assertTrue(any("not published yet" in n for n in result["notes"]))
 
     def test_pending_source_after_march_opens_issue(self):
-        rates = load_rates()
+        rates = load_fixture_rates()
         gh, result = self.run_check(rates, datetime.date(2027, 5, 3), pages_for(2027, fixture("federal_2027.html")))
         self.assertEqual(result["status"], "problems")
         self.assertEqual(gh.commits, [])
@@ -250,7 +286,7 @@ class Updater(unittest.TestCase):
         self.assertIn("still not published", gh.issues[0][2])
 
     def test_big_jump_opens_issue_instead_of_committing(self):
-        rates = load_rates()
+        rates = load_fixture_rates()
         page = fixture("federal_2027.html").replace("$16,500", "$25,000")
         gh, result = self.run_check(rates, datetime.date(2027, 1, 5), pages_for(2027, page))
         self.assertEqual(result["status"], "problems")
@@ -258,8 +294,18 @@ class Updater(unittest.TestCase):
         self.assertEqual(gh.commits, [])
         self.assertEqual(result["rates"], rates)
 
+    def test_partial_state_scrape_in_a_new_year_is_not_committed(self):
+        rates = load_fixture_rates()
+        page = fixture("states_2026.html").replace("2026", "2027")
+        page = re.sub(r"<tr>\s*<td>- Kansas</td>.*?</tr>", "", page, flags=re.S)   # KS's 5.58% row lost
+        gh, result = self.run_check(rates, datetime.date(2027, 2, 1),
+                                    pages_for(2027, fixture("federal_2027.html"), None, page))
+        self.assertEqual(result["status"], "problems")
+        self.assertTrue(any("KS" in p and "brackets" in p for p in result["problems"]), result["problems"])
+        self.assertEqual(gh.commits, [])
+
     def test_changed_page_layout_opens_issue(self):
-        rates = load_rates()
+        rates = load_fixture_rates()
         gh, result = self.run_check(rates, datetime.date(2026, 11, 2),
                                     pages_for(2026, "<html>2026 redesigned page</html>",
                                               fixture("irmaa_2026.html"), fixture("states_2026.html")))
@@ -267,7 +313,7 @@ class Updater(unittest.TestCase):
         self.assertTrue(any("could not be read" in p for p in result["problems"]))
 
     def test_same_year_discrepancy_is_flagged_but_overrides_are_respected(self):
-        rates = load_rates()
+        rates = load_fixture_rates()
         states = rates["items"]["stateIncomeTax"]["value"]["states"]
         ga = next(s for s in states if s["abbr"] == "GA")
         self.assertTrue(ga.get("override"))
@@ -282,14 +328,14 @@ class Updater(unittest.TestCase):
         self.assertTrue(any("IL: page says 4.85%" in p for p in result["problems"]))
 
     def test_network_error_is_reported(self):
-        rates = load_rates()
+        rates = load_fixture_rates()
         pages = pages_for(2026, fixture("federal_2026.html"), TimeoutError("timed out"), fixture("states_2026.html"))
         gh, result = self.run_check(rates, datetime.date(2026, 10, 28), pages)
         self.assertEqual(result["status"], "problems")
         self.assertTrue(any("Medicare IRMAA: could not fetch" in p for p in result["problems"]))
 
     def test_invalid_current_data_opens_issue(self):
-        rates = load_rates()
+        rates = load_fixture_rates()
         rates["items"].pop("rmd")
         gh = FakeGitHub(rates, self.index)
         result = updater.run_check(gh, datetime.date(2026, 10, 28), fetch=fake_fetch({}))
@@ -297,7 +343,7 @@ class Updater(unittest.TestCase):
         self.assertEqual(len(gh.issues), 1)
 
     def test_time_budget_is_respected(self):
-        rates = load_rates()
+        rates = load_fixture_rates()
         cand, problems, notes = updater.build_candidate(rates, datetime.date(2026, 10, 28),
                                                         fake_fetch({}), time.monotonic() - 1)
         self.assertEqual(len(problems), 3)

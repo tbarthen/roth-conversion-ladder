@@ -355,18 +355,23 @@ def _leaves(value, path=""):
 def compare_to_prior(key, prior_value, new_value, max_change=MAX_CHANGE):
     """Return problems where a figure moved more than max_change vs. before.
 
-    State data is compared on each state's top rate only (bracket layouts
-    legitimately change). Other items must keep the same shape.
+    State data is compared per state: the top rate, the number of brackets
+    for each filing status, and every bracket rate and upper bound. A state
+    that lost a bracket row or gained one (a partial scrape or a real
+    restructuring) is flagged for a human either way. Other items must keep
+    the same shape.
     """
     problems = []
     if key == "stateIncomeTax":
-        before = {s["abbr"]: s["rate"] for s in prior_value.get("states", [])}
+        before = {s["abbr"]: s for s in prior_value.get("states", [])}
         for s in new_value.get("states", []):
             old = before.get(s["abbr"])
             if old is None:
                 problems.append(f"{key}: new state {s['abbr']}")
-            elif _moved(old, s["rate"], max_change):
-                problems.append(f"{key}: {s['abbr']} top rate {old}% -> {s['rate']}% (more than {int(max_change * 100)}%)")
+                continue
+            if _moved(old["rate"], s["rate"], max_change):
+                problems.append(f"{key}: {s['abbr']} top rate {old['rate']}% -> {s['rate']}% (more than {int(max_change * 100)}%)")
+            problems.extend(_compare_state_brackets(key, s["abbr"], old.get("brackets"), s.get("brackets"), max_change))
         return problems
     old = dict(_leaves(prior_value))
     new = dict(_leaves(new_value))
@@ -377,6 +382,24 @@ def compare_to_prior(key, prior_value, new_value, max_change=MAX_CHANGE):
     for path in sorted(set(old) & set(new)):
         if _moved(old[path], new[path], max_change):
             problems.append(f"{key}: {path} {old[path]} -> {new[path]} (more than {int(max_change * 100)}%)")
+    return problems
+
+
+def _compare_state_brackets(key, abbr, old_br, new_br, max_change):
+    if not isinstance(old_br, dict) or not isinstance(new_br, dict):
+        return []
+    problems = []
+    for fs in ("single", "marriedFilingJointly"):
+        ob, nb = old_br.get(fs) or [], new_br.get(fs) or []
+        if len(ob) != len(nb):
+            problems.append(f"{key}: {abbr} {fs} brackets changed from {len(ob)} to {len(nb)} rows (check the page layout)")
+            continue
+        for i, (orow, nrow) in enumerate(zip(ob, nb)):
+            rate_moved = _moved(orow[0], nrow[0], max_change)
+            bound_moved = ((orow[1] is None) != (nrow[1] is None)) or \
+                (orow[1] is not None and nrow[1] is not None and _moved(orow[1], nrow[1], max_change))
+            if rate_moved or bound_moved:
+                problems.append(f"{key}: {abbr} {fs} brackets row {i + 1} {orow} -> {nrow} (more than {int(max_change * 100)}%)")
     return problems
 
 

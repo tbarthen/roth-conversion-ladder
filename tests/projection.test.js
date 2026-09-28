@@ -203,7 +203,7 @@ test('fuzz: random profiles never produce NaN, negatives or lost money', () => {
   const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
   const pick = (a) => a[Math.floor(rnd() * a.length)];
   const statuses = ['single', 'marriedFilingJointly', 'marriedFilingSeparately'];
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 200; i++) {
     const age = 45 + Math.floor(rnd() * 35);
     const inp = baseInputs({
       currentAge: age, retirementAge: age + Math.floor(rnd() * 8), lifeExpectancy: Math.min(110, age + 5 + Math.floor(rnd() * 30)),
@@ -297,4 +297,55 @@ test('validateInputs explains problems in plain English', () => {
   assert.match(text.errors[0].message, /must be a number/);
   const outlive = E.validateInputs({ currentAge: 60, annualSpending: 1, lifeExpectancy: 80, filingStatus: 'marriedFilingJointly', spouseAge: 55, spouseLifeExpectancy: 95 });
   assert.ok(outlive.warnings.some(w => /outlive/.test(w.message)));
+});
+
+test('cash flow settles to a consistent fixed point when the IRMAA cap and IRA spending withdrawals interact', () => {
+  /* Both profiles made the old loop cycle between four states, ending on an
+     inconsistent one that dropped tens of thousands of dollars a year. */
+  const a = baseInputs({ currentAge: 72, retirementAge: 74, lifeExpectancy: 105, filingStatus: 'single', stateAbbr: 'PA',
+    traditionalBalance: 2955035, rothBalance: 244243, taxableBalance: 865713, taxableCostBasis: '', hsaBalance: 34811,
+    annualContributions: { traditional: 10000, roth: 5000, taxable: 5000, hsa: 3000 }, grossIncome: 262152,
+    ssAnnualBenefit: 42666, ssStartAge: 65, annualSpending: 211527, preRetirementGrowth: 2.15257, rothGrowth: 2.15257,
+    taxableGrowth: 2.15257, dividendYield: 1.55386 });
+  const b = baseInputs({ currentAge: 77, retirementAge: 80, lifeExpectancy: 109, filingStatus: 'marriedFilingSeparately', stateAbbr: 'CA',
+    traditionalBalance: 1783978, rothBalance: 43556, taxableBalance: 111319, taxableCostBasis: 983950, hsaBalance: 60589,
+    annualContributions: { traditional: 10000, roth: 5000, taxable: 5000, hsa: 3000 }, grossIncome: 210516,
+    ssAnnualBenefit: 27745, ssStartAge: 64, annualSpending: 181785, preRetirementGrowth: 0.91921, rothGrowth: 0.91921,
+    taxableGrowth: 0.91921, dividendYield: 0.95729 });
+  for (const inp of [a, b]) {
+    for (const irmaaMode of ['avoid', 'ignore']) {
+      const rows = run(inp, 'optimized', { targetBracketRate: 0.35, irmaaMode, taxPaymentSource: 'taxable' });
+      assertSane(rows);
+      assertConservation(inp, rows);
+    }
+  }
+});
+
+test('IRMAA after a spouse dies: the lookback years are judged on the joint return that was filed', () => {
+  const inp = baseInputs({ currentAge: 70, retirementAge: 60, lifeExpectancy: 80, filingStatus: 'marriedFilingJointly', spouseAge: 70, spouseLifeExpectancy: 72,
+    traditionalBalance: 3000000, rothBalance: 0, taxableBalance: 500000, taxableCostBasis: 500000, ssAnnualBenefit: 40000, spouseSsBenefit: 30000,
+    pensionIncome: 100000, annualSpending: 120000 });
+  const rows = run(inp);
+  assert.equal(rows[3].filingStatus, 'single');
+  assert.ok(rows[3].irmaaMagi < 218000 * 1.02 ** 3, 'joint-return MAGI is under the joint threshold');
+  assert.equal(rows[3].irmaaSurcharge, 0); /* 2027 joint return, judged on joint thresholds */
+  assert.equal(rows[4].irmaaSurcharge, 0); /* 2028 joint return */
+  assert.ok(rows[5].irmaaSurcharge > 0);   /* first single return */
+});
+
+test('no-conversion baseline: once penalty-free, spending comes from the traditional account before the Roth', () => {
+  const older = baseInputs({ currentAge: 65, retirementAge: 65, taxableBalance: 0, taxableCostBasis: '', rothBalance: 150000, traditionalBalance: 500000, ssAnnualBenefit: 0 });
+  const rows = run(older);
+  assert.ok(rows[0].tradWithdrawal > 0, 'IRA pays for spending');
+  assert.equal(rows[0].rothWithdrawal, 0);
+  assert.ok(rows[0].taxableIncome > 0, 'the standard deduction is not wasted');
+  assertConservation(older, rows);
+  /* before 59½ the Roth (contributions, seasoned conversions) still comes first */
+  const younger = run(baseInputs({ currentAge: 55, retirementAge: 55, taxableBalance: 0, taxableCostBasis: '', rothBalance: 150000, traditionalBalance: 500000, ssAnnualBenefit: 0 }));
+  assert.ok(younger[0].rothWithdrawal > 0);
+  assert.equal(younger[0].tradWithdrawal, 0);
+  /* conversion plans fill the bracket with the conversion and spend from the Roth */
+  const conv = run(older, 'custom', { customConversion: 20000 });
+  assert.ok(conv[0].rothWithdrawal > 0);
+  assert.equal(conv[0].tradWithdrawal, 0);
 });

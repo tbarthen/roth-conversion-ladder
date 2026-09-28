@@ -4,18 +4,25 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
-const { E, loadRates, clone, ROOT, RATES_PATH } = require('./helpers');
+const { E, loadRates, loadFixture, clone, ROOT, RATES_PATH } = require('./helpers');
 
 test('data/rates.json is valid and covers every item with a source and year', () => {
   const rates = loadRates();
   assert.deepEqual(E.validateRates(rates), []);
-  assert.equal(rates.taxYear, 2026);
+  assert.ok(rates.taxYear >= 2026, 'tax year moves forward only');
   for (const key of E.REQUIRED_ITEMS) {
     const it = rates.items[key];
     assert.match(it.source, /^https:\/\//, key);
     assert.ok(it.effectiveYear === rates.taxYear || it.effectiveYear === rates.taxYear - 1, key);
   }
   assert.equal(rates.items.stateIncomeTax.value.states.length, 51);
+});
+
+test('the frozen test fixture is a valid 2026 rates document', () => {
+  const fx = loadFixture();
+  assert.deepEqual(E.validateRates(fx), []);
+  assert.equal(fx.taxYear, 2026);
+  assert.equal(E.formatRatesJson(fx), fs.readFileSync(path.join(ROOT, 'tests', 'fixtures', 'rates-2026.json'), 'utf8'));
 });
 
 test('data/rates.json is stored in canonical format', () => {
@@ -64,11 +71,11 @@ test('validation rejects broken documents', () => {
 });
 
 test('an item may lag one year behind the tax year (e.g. state data pending)', () => {
-  const r = clone(loadRates());
+  const r = clone(loadFixture());
+  assert.deepEqual(E.laggingItems(r), []);
   r.items.stateIncomeTax.effectiveYear = r.taxYear - 1;
   assert.deepEqual(E.validateRates(r), []);
   assert.deepEqual(E.laggingItems(r).map(i => i.key), ['stateIncomeTax']);
-  assert.deepEqual(E.laggingItems(loadRates()), []);
 });
 
 test('canonical formatter: inline when short, wrapped at 100 columns when long', () => {

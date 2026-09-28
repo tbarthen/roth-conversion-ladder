@@ -5,9 +5,14 @@ const E = require('../js/tax-engine.js');
 
 const ROOT = path.join(__dirname, '..');
 const RATES_PATH = path.join(ROOT, 'data', 'rates.json');
+/* The calculation tests use a frozen copy of the 2026 figures, so the
+   hand-worked expected values stay valid after the live data/rates.json is
+   updated for a new tax year. The rates-data tests check the live file. */
+const FIXTURE_PATH = path.join(__dirname, 'fixtures', 'rates-2026.json');
 
 const loadRates = () => JSON.parse(fs.readFileSync(RATES_PATH, 'utf8'));
-const td = E.compileTaxData(loadRates());
+const loadFixture = () => JSON.parse(fs.readFileSync(FIXTURE_PATH, 'utf8'));
+const td = E.compileTaxData(loadFixture());
 
 /** Deep copy so tests can mutate freely. */
 const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -29,4 +34,4 @@ const baseInputs = (over = {}) => ({
 const near = (assert, actual, expected, tol = 0.01, msg) =>
   assert.ok(Math.abs(actual - expected) <= tol, `${msg || ''} expected ${expected}, got ${actual}`);
 
-module.exports = { E, td, loadRates, clone, baseInputs, near, ROOT, RATES_PATH };
+module.exports = { E, td, loadRates, loadFixture, clone, baseInputs, near, ROOT, RATES_PATH, FIXTURE_PATH };

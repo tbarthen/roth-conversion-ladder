@@ -1,5 +1,5 @@
-/* Unit tests for every single-year tax calculation, using the 2026
-   figures in data/rates.json. Expected values are worked by hand. */
+/* Unit tests for every single-year tax calculation, using the frozen 2026
+   figures in tests/fixtures/rates-2026.json. Expected values are worked by hand. */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { E, td, near } = require('./helpers');

@@ -389,7 +389,7 @@ def parse_states(html, year):
     """Return {abbr: {"rate": top%, "brackets": {single, marriedFilingJointly}}}."""
     tables, text = parse_tables(html)
     _require_year(text, year)
-    best = {}
+    best, best_has_joint = {}, False
     for table in tables:
         found, current, gains_only = {}, None, set()
         header = next((r for r in table if any("single" in c.lower() for c in r)
@@ -431,13 +431,17 @@ def parse_states(html, year):
                 if len(pairs) >= 2:
                     found[current]["joint"].append(pairs[1])
         if len(found) > len(best):
-            best = found
+            best, best_has_joint = found, bool(single_cols and joint_cols)
     if len(best) < 51:
         raise ParseError(f"state table has {len(best)} states, expected 51")
     out = {}
     for abbr, d in best.items():
         if not d["single"]:
             raise ParseError(f"{abbr}: no rates found")
+        if best_has_joint and not d["joint"]:
+            # The page has married-filing-jointly columns, so blank cells mean
+            # the row was not read, not that the brackets equal the single ones.
+            raise ParseError(f"{abbr}: married filing jointly brackets missing")
         single = _to_brackets(d["single"])
         joint = _to_brackets(d["joint"] or d["single"])
         top = single[-1][0] * 100

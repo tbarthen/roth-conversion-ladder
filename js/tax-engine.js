@@ -908,6 +908,99 @@ function runProjection(rawInputs, scenario, opts, td) {
       bracketInflation: bInfl
     });
 
+    /* IRMAA: two-year lookback. The thresholds are those of the filing
+       status on the return SSA looks at (a surviving spouse is judged on the
+       joint return for two years). Before history exists, this year's income
+       without this year's conversion is the stand-in. */
+    const irmaaFor = (w) => {
+      if (medicarePeople <= 0) return { magi: null, surcharge: { annual: 0, tier: 0, tierLabel: 'None' } };
+      const past = magiHistory.length >= lookback ? magiHistory[magiHistory.length - lookback] : null;
+      const magi = past ? past.magi : computeYearTax(td, taxParams(0, w)).magi;
+      const status = past ? past.filingStatus : filingStatus;
+      return { magi, surcharge: irmaaSurcharge(td, magi, status, year, bInfl, infl, medicarePeople) };
+    };
+
+    /* No-conversion baseline: once withdrawals are penalty-free, spend the
+       traditional account before the Roth (the usual order). Conversion plans
+       fill the bracket with the conversion, so they spend the Roth first. */
+    const tradBeforeRoth = scenario === 'noConversion' && !earlyPenaltyApplies(age);
+
+    /* 7. Cash flow for a given conversion: spending + taxes, drawn from the
+       accounts in order. Iterated to a fixed point because withdrawals create
+       taxable income, which changes the tax. With the conversion held fixed
+       the iteration is monotone (more tax -> more withdrawals -> more tax),
+       so it converges in a few steps. */
+    const settle = (conv) => {
+      let w = { fromTaxable: 0, gains: 0, basisOut: 0, fromRoth: 0, fromTrad: 0, fromHSA: 0 };
+      let tax, irmaa = { annual: 0, tier: 0, tierLabel: 'None' }, irmaaMagi = null;
+      let rothPenalty = 0, tradPenalty = 0, hsaPenalty = 0, withholdPenalty = 0, taxFromConversion = 0;
+      let unmet = 0, surplus = 0, layers = null;
+
+      for (let iter = 0; iter < 60; iter++) {
+        tax = computeYearTax(td, taxParams(conv, w));
+        const ir = irmaaFor(w);
+        irmaa = ir.surcharge; irmaaMagi = ir.magi;
+        tradPenalty = earlyPenaltyApplies(age) ? w.fromTrad * pen.earlyDistributionRate : 0;
+        hsaPenalty = age < pen.hsaPenaltyFreeAge ? w.fromHSA * pen.hsaNonMedicalRate : 0;
+        const taxesDue = tax.incomeTax + irmaa.annual + tradPenalty + hsaPenalty + rothPenalty + withholdPenalty;
+
+        if (working) break; /* taxes come out of the paycheck */
+
+        /* Paying tax "from the conversion" = withholding: that slice never
+           reaches the Roth and is an early distribution if under 59 1/2. */
+        const prevTFC = taxFromConversion;
+        taxFromConversion = payFromConversion && conv > 0 ? Math.min(taxesDue, conv) : 0;
+        withholdPenalty = earlyPenaltyApplies(age) ? taxFromConversion * pen.earlyDistributionRate : 0;
+
+        const cash = rmd + ssIncome + pension;
+        let need = spendingTarget + taxesDue - taxFromConversion - cash;
+        surplus = Math.max(0, -need);
+        need = Math.max(0, need);
+
+        const prev = w;
+        w = { fromTaxable: 0, gains: 0, basisOut: 0, fromRoth: 0, fromTrad: 0, fromHSA: 0 };
+        w.fromTaxable = Math.min(need, taxBal);
+        if (w.fromTaxable > 0 && taxBal > 0) {
+          w.basisOut = w.fromTaxable * Math.min(1, taxBasis / taxBal);
+          w.gains = w.fromTaxable - w.basisOut;
+        }
+        need -= w.fromTaxable;
+
+        const drawTrad = () => {
+          w.fromTrad = Math.min(need, Math.max(0, tradAvailable - conv));
+          need -= w.fromTrad;
+        };
+        if (tradBeforeRoth) drawTrad();
+
+        layers = {
+          contributions: rothContributions,
+          conversions: conversionLayers.map(c => ({ ...c }))
+        };
+        const convIn = conv - taxFromConversion;
+        if (convIn > 0) layers.conversions.push({ year, remaining: convIn });
+        const roth = withdrawRoth(layers, need, rothBal + convIn, year, age);
+        w.fromRoth = roth.withdrawn;
+        rothPenalty = roth.penalty;
+        need -= w.fromRoth;
+
+        if (!tradBeforeRoth) drawTrad();
+        w.fromHSA = Math.min(need, hsaBal);
+        need -= w.fromHSA;
+        unmet = need;
+
+        const moved = Math.abs(w.fromTaxable - prev.fromTaxable) + Math.abs(w.fromRoth - prev.fromRoth)
+          + Math.abs(w.fromTrad - prev.fromTrad) + Math.abs(w.fromHSA - prev.fromHSA)
+          + Math.abs(taxFromConversion - prevTFC);
+        if (iter > 0 && moved < 0.5) break;
+      }
+
+      /* Final tax with the settled withdrawals */
+      tax = computeYearTax(td, taxParams(conv, w));
+      tradPenalty = earlyPenaltyApplies(age) ? w.fromTrad * pen.earlyDistributionRate : 0;
+      hsaPenalty = age < pen.hsaPenaltyFreeAge ? w.fromHSA * pen.hsaNonMedicalRate : 0;
+      return { w, tax, irmaa, irmaaMagi, rothPenalty, tradPenalty, hsaPenalty, withholdPenalty, taxFromConversion, unmet, surplus, layers };
+    };
+
     /* Largest conversion x in [0, max] with f(x) <= limit (f nondecreasing). */
     const solveMax = (f, limit, max) => {
       if (f(0) > limit) return 0;
@@ -920,14 +1013,17 @@ function runProjection(rawInputs, scenario, opts, td) {
       return lo;
     };
 
-    const optimizedConversion = (w) => {
+    /* Fill ordinary taxable income to the top of the target bracket. Each
+       trial conversion is settled with its own withdrawals, so the income
+       from any IRA spending withdrawals it displaces is accounted for. */
+    const optimizedConversion = () => {
       if (tradAvailable <= 0) return 0;
       const ceiling = bracketCeiling(getBrackets(td, filingStatus, year, bInfl), targetBracketRate);
-      let conv = solveMax((x) => computeYearTax(td, taxParams(x, w)).ordinaryTaxableIncome, ceiling, tradAvailable);
+      let conv = solveMax((x) => settle(x).tax.ordinaryTaxableIncome, ceiling, tradAvailable);
       /* Optionally stay under the next Medicare IRMAA threshold (hit 2 years later) */
       const futureMedicare = (age + lookback >= 65) || (isMFJ && sAge + lookback >= 65);
       if (irmaaMode === 'avoid' && conv > 0 && futureMedicare) {
-        const magiAt = (x) => computeYearTax(td, taxParams(x, w)).magi;
+        const magiAt = (x) => settle(x).tax.magi;
         const base = magiAt(0);
         const next = irmaaThresholds(td, filingStatus, year + lookback, bInfl).find(t => t >= base);
         if (next !== undefined && magiAt(conv) > next - IRMAA_CUSHION) {
@@ -939,84 +1035,15 @@ function runProjection(rawInputs, scenario, opts, td) {
 
     let conv = 0;
     if (!working && scenario === 'custom') conv = Math.min(indexAmount(customConversion, startYear, year, infl), tradAvailable);
+    if (!working && scenario === 'optimized') conv = optimizedConversion();
 
-    /* 7. Cash flow: spending + taxes, drawn taxable -> Roth -> traditional -> HSA.
-       Iterate because withdrawals create taxable income, which changes tax. */
-    let w = { fromTaxable: 0, gains: 0, basisOut: 0, fromRoth: 0, fromTrad: 0, fromHSA: 0 };
-    let tax, irmaa = { annual: 0, tier: 0, tierLabel: 'None' }, irmaaMagi = null;
-    let rothPenalty = 0, tradPenalty = 0, hsaPenalty = 0, withholdPenalty = 0, taxFromConversion = 0;
-    let unmet = 0, surplus = 0, layers = null;
-
-    for (let iter = 0; iter < 60; iter++) {
-      if (!working && scenario === 'optimized') conv = optimizedConversion(w);
-      tax = computeYearTax(td, taxParams(conv, w));
-
-      /* IRMAA: two-year lookback; before history exists, use this year's
-         income without this year's conversion as a stand-in. */
-      if (medicarePeople > 0) {
-        irmaaMagi = magiHistory.length >= lookback
-          ? magiHistory[magiHistory.length - lookback]
-          : computeYearTax(td, taxParams(0, w)).magi;
-        irmaa = irmaaSurcharge(td, irmaaMagi, filingStatus, year, bInfl, infl, medicarePeople);
-      }
-      tradPenalty = earlyPenaltyApplies(age) ? w.fromTrad * pen.earlyDistributionRate : 0;
-      hsaPenalty = age < pen.hsaPenaltyFreeAge ? w.fromHSA * pen.hsaNonMedicalRate : 0;
-      const taxesDue = tax.incomeTax + irmaa.annual + tradPenalty + hsaPenalty + rothPenalty + withholdPenalty;
-
-      if (working) break; /* taxes come out of the paycheck */
-
-      /* Paying tax "from the conversion" = withholding: that slice never
-         reaches the Roth and is an early distribution if under 59 1/2. */
-      const prevTFC = taxFromConversion;
-      taxFromConversion = payFromConversion && conv > 0 ? Math.min(taxesDue, conv) : 0;
-      withholdPenalty = earlyPenaltyApplies(age) ? taxFromConversion * pen.earlyDistributionRate : 0;
-
-      const cash = rmd + ssIncome + pension;
-      let need = spendingTarget + taxesDue - taxFromConversion - cash;
-      surplus = Math.max(0, -need);
-      need = Math.max(0, need);
-
-      const prev = w;
-      w = { fromTaxable: 0, gains: 0, basisOut: 0, fromRoth: 0, fromTrad: 0, fromHSA: 0 };
-      w.fromTaxable = Math.min(need, taxBal);
-      if (w.fromTaxable > 0 && taxBal > 0) {
-        w.basisOut = w.fromTaxable * Math.min(1, taxBasis / taxBal);
-        w.gains = w.fromTaxable - w.basisOut;
-      }
-      need -= w.fromTaxable;
-
-      layers = {
-        contributions: rothContributions,
-        conversions: conversionLayers.map(c => ({ ...c }))
-      };
-      const convIn = conv - taxFromConversion;
-      if (convIn > 0) layers.conversions.push({ year, remaining: convIn });
-      const roth = withdrawRoth(layers, need, rothBal + convIn, year, age);
-      w.fromRoth = roth.withdrawn;
-      rothPenalty = roth.penalty;
-      need -= w.fromRoth;
-
-      w.fromTrad = Math.min(need, Math.max(0, tradAvailable - conv));
-      need -= w.fromTrad;
-      w.fromHSA = Math.min(need, hsaBal);
-      need -= w.fromHSA;
-      unmet = need;
-
-      const moved = Math.abs(w.fromTaxable - prev.fromTaxable) + Math.abs(w.fromRoth - prev.fromRoth)
-        + Math.abs(w.fromTrad - prev.fromTrad) + Math.abs(w.fromHSA - prev.fromHSA)
-        + Math.abs(taxFromConversion - prevTFC);
-      if (iter > 0 && moved < 0.5) break;
-    }
-
-    /* Final tax with the settled withdrawals */
-    tax = computeYearTax(td, taxParams(conv, w));
-    tradPenalty = earlyPenaltyApplies(age) ? w.fromTrad * pen.earlyDistributionRate : 0;
-    hsaPenalty = age < pen.hsaPenaltyFreeAge ? w.fromHSA * pen.hsaNonMedicalRate : 0;
+    const settled = settle(conv);
+    const { w, tax, irmaa, irmaaMagi, rothPenalty, tradPenalty, hsaPenalty, withholdPenalty, taxFromConversion, unmet, surplus, layers } = settled;
     const earlyWithdrawalPenalty = tradPenalty + withholdPenalty;
     const totalTax = tax.incomeTax + irmaa.annual + earlyWithdrawalPenalty + hsaPenalty + rothPenalty;
     cumulativeTax += totalTax;
     cumulativeUnmet += unmet;
-    magiHistory.push(tax.magi);
+    magiHistory.push({ magi: tax.magi, filingStatus });
 
     /* 8. Apply the year's flows */
     tradBal = Math.max(0, tradBal - rmd - conv - w.fromTrad);
