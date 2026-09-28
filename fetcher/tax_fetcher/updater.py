@@ -20,7 +20,7 @@ GROUPS = (
     ("State income tax", sources.state_urls,
      lambda html, year: {"stateIncomeTax": sources.parse_states(html, year)}, ("stateIncomeTax",)),
 )
-STATUTORY = ("seniorBonusDeduction", "niit", "socialSecurityTaxation", "socialSecurityClaiming", "rmd", "penalties")
+STATUTORY = ("seniorBonusDeduction", "niit", "socialSecurityTaxation", "socialSecurityClaiming", "socialSecuritySurvivor", "rmd", "penalties")
 
 
 STATE_ALLOWANCE_KEYS = ("standardDeduction", "personalExemption", "personalCredit")

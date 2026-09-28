@@ -12,7 +12,7 @@ FILING_STATUSES = ("single", "marriedFilingJointly", "marriedFilingSeparately")
 REQUIRED_ITEMS = (
     "federalBrackets", "standardDeduction", "additionalStandardDeduction65",
     "seniorBonusDeduction", "capitalGainsBrackets", "niit",
-    "socialSecurityTaxation", "socialSecurityClaiming", "medicareIrmaa",
+    "socialSecurityTaxation", "socialSecurityClaiming", "socialSecuritySurvivor", "medicareIrmaa",
     "rmd", "penalties", "stateIncomeTax",
 )
 SCHEMA_VERSION = 2
@@ -143,6 +143,22 @@ def _v_ss_claim(v, err):
             err(f"{k} out of range")
     if not _int(v.get("earliestClaimAge")) or not _int(v.get("maxCreditAge")) or v["earliestClaimAge"] >= v["maxCreditAge"]:
         err("claim ages invalid")
+
+
+def _v_ss_survivor(v, err):
+    if not isinstance(v, dict):
+        return err("must be an object")
+    _ascending_table(v.get("fullRetirementAge"), "bornThrough",
+                     lambda r: _int(r.get("years")) and _int(r.get("months")) and 0 <= r["months"] <= 11,
+                     "fullRetirementAge", err)
+    if not _int(v.get("earliestClaimAge")) or not 50 <= v["earliestClaimAge"] <= 65:
+        err("earliestClaimAge out of range")
+    if not _num(v.get("maxReduction")) or not 0 < v["maxReduction"] < 1:
+        err("maxReduction out of range")
+    if not _num(v.get("earlyClaimerFloor")) or not 0 < v["earlyClaimerFloor"] <= 1:
+        err("earlyClaimerFloor out of range")
+    if not _int(v.get("remarriageCutoffAge")) or not 50 <= v["remarriageCutoffAge"] <= 70:
+        err("remarriageCutoffAge out of range")
 
 
 def _v_irmaa(v, err):
@@ -317,6 +333,7 @@ ITEM_VALIDATORS = {
     "niit": _v_niit,
     "socialSecurityTaxation": _v_ss_tax,
     "socialSecurityClaiming": _v_ss_claim,
+    "socialSecuritySurvivor": _v_ss_survivor,
     "medicareIrmaa": _v_irmaa,
     "rmd": _v_rmd,
     "penalties": _v_penalties,

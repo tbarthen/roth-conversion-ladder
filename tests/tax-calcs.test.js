@@ -316,3 +316,48 @@ test('state: California senior exemption credit, per person 65 or older', () => 
   near(assert, tax(0), 1049.49);
   assert.equal(ca.seniorCredit.fromAge, 65);
 });
+
+test('Social Security survivor: survivor full retirement age is two birth years behind the retirement one', () => {
+  assert.equal(E.survivorFullRetirementAgeMonths(td, 1939), 780);
+  assert.equal(E.survivorFullRetirementAgeMonths(td, 1940), 782);
+  assert.equal(E.survivorFullRetirementAgeMonths(td, 1944), 790);
+  assert.equal(E.survivorFullRetirementAgeMonths(td, 1945), 792);
+  assert.equal(E.survivorFullRetirementAgeMonths(td, 1956), 792);
+  assert.equal(E.survivorFullRetirementAgeMonths(td, 1957), 794);
+  assert.equal(E.survivorFullRetirementAgeMonths(td, 1961), 802);
+  assert.equal(E.survivorFullRetirementAgeMonths(td, 1962), 804);
+  assert.equal(E.survivorFullRetirementAgeMonths(td, 1966), 804);
+  /* the retirement FRA for the same years, for contrast */
+  assert.equal(E.fullRetirementAgeMonths(td, 1957), 798);
+  assert.equal(E.fullRetirementAgeMonths(td, 1960), 804);
+});
+
+test('Social Security survivor: 71.5% at 60, rising evenly each month to 100% at survivor FRA, nothing for waiting longer', () => {
+  near(assert, E.ssSurvivorFactor(td, 1966, 60), 0.715, 1e-9);
+  near(assert, E.ssSurvivorFactor(td, 1966, 64), 1 - 0.285 * 36 / 84, 1e-9);   /* 36 of 84 months early */
+  near(assert, E.ssSurvivorFactor(td, 1966, 67), 1, 1e-9);
+  near(assert, E.ssSurvivorFactor(td, 1966, 70), 1, 1e-9);                      /* no delayed credits on survivor benefits */
+  near(assert, E.ssSurvivorFactor(td, 1966, 58), 0.715, 1e-9);                  /* clamped to 60 */
+  near(assert, E.ssSurvivorFactor(td, 1957, 66), 1 - 0.285 * 2 / 74, 1e-9);     /* FRA 66 and 2 months */
+  near(assert, E.ssSurvivorFactor(td, 1955, 60), 0.715, 1e-9);                  /* FRA 66: 72 months early */
+  near(assert, E.ssSurvivorFactor(td, 1955, 63), 0.8575, 1e-9);
+});
+
+test('Social Security survivor: amount from the late spouse\'s record, incl. the 82.5% floor when they claimed early', () => {
+  const s = (claimAge, deceased) => E.survivorBenefitAmount(td, 1966, claimAge, deceased);
+  /* late spouse had not started (or started at their FRA): 100% of their full amount, reduced for the survivor's age */
+  near(assert, s(60, { fraAmount: 30000, claimingFactor: 1 }), 21450, 0.01);
+  near(assert, s(64, { fraAmount: 30000, claimingFactor: 1 }), 30000 * (1 - 0.285 * 36 / 84), 0.01);
+  near(assert, s(67, { fraAmount: 30000, claimingFactor: 1 }), 30000, 0.01);
+  /* late spouse claimed at 62 (70%): the survivor gets at most the larger of what they got ($21,000) and 82.5% ($24,750) */
+  near(assert, s(60, { fraAmount: 30000, claimingFactor: 0.7 }), 21450, 0.01);   /* own reduction bites first */
+  near(assert, s(64, { fraAmount: 30000, claimingFactor: 0.7 }), 24750, 0.01);   /* the cap bites */
+  near(assert, s(67, { fraAmount: 30000, claimingFactor: 0.7 }), 24750, 0.01);
+  /* late spouse claimed at 65 (86.67%, $26,000): their actual amount beats the 82.5% floor */
+  const f65 = E.ssClaimingFactor(td, 1964, 65);
+  near(assert, f65, 1 - 24 * 0.2 / 36, 1e-9);
+  near(assert, s(67, { fraAmount: 30000, claimingFactor: f65 }), 26000, 0.01);
+  /* late spouse waited to 70 (124%): the survivor gets the credits too */
+  near(assert, s(67, { fraAmount: 30000, claimingFactor: 1.24 }), 37200, 0.01);
+  near(assert, s(60, { fraAmount: 30000, claimingFactor: 1.24 }), 37200 * 0.715, 0.01);
+});

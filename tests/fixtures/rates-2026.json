@@ -148,6 +148,34 @@
         "maxCreditAge": 70
       }
     },
+    "socialSecuritySurvivor": {
+      "label": "Social Security survivor benefits: survivor full retirement age and reductions",
+      "sourceName": "SSA: Survivors benefits (if you are the survivor) and survivor benefit reduction chart; POMS RS 00615.320 (RIB-LIM)",
+      "source": "https://www.ssa.gov/benefits/survivors/survivorchartred.html",
+      "effectiveYear": 2026,
+      "indexed": false,
+      "value": {
+        "fullRetirementAge": [
+          {"bornThrough": 1939, "years": 65, "months": 0},
+          {"bornThrough": 1940, "years": 65, "months": 2},
+          {"bornThrough": 1941, "years": 65, "months": 4},
+          {"bornThrough": 1942, "years": 65, "months": 6},
+          {"bornThrough": 1943, "years": 65, "months": 8},
+          {"bornThrough": 1944, "years": 65, "months": 10},
+          {"bornThrough": 1956, "years": 66, "months": 0},
+          {"bornThrough": 1957, "years": 66, "months": 2},
+          {"bornThrough": 1958, "years": 66, "months": 4},
+          {"bornThrough": 1959, "years": 66, "months": 6},
+          {"bornThrough": 1960, "years": 66, "months": 8},
+          {"bornThrough": 1961, "years": 66, "months": 10},
+          {"bornThrough": null, "years": 67, "months": 0}
+        ],
+        "earliestClaimAge": 60,
+        "maxReduction": 0.285,
+        "earlyClaimerFloor": 0.825,
+        "remarriageCutoffAge": 60
+      }
+    },
     "medicareIrmaa": {
       "label": "Medicare IRMAA (Part B and D income-related surcharges)",
       "sourceName": "CMS: 2026 Medicare Parts A & B premiums and deductibles",

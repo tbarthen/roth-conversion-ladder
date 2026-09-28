@@ -119,3 +119,22 @@ test('isNewerRates compares tax year, then last update date', () => {
   assert.equal(E.isNewerRates({ ...cur, taxYear: 2025, lastUpdated: '2027-01-01' }, cur), false);
   assert.equal(E.isNewerRates(null, cur), false);
 });
+
+test('validation checks the survivor-benefit item', () => {
+  const bad = (mutate, pattern) => {
+    const r = clone(loadRates());
+    mutate(r);
+    const errs = E.validateRates(r);
+    assert.ok(errs.some(e => pattern.test(e)), `expected ${pattern}, got ${JSON.stringify(errs.slice(0, 3))}`);
+  };
+  assert.ok(E.REQUIRED_ITEMS.includes('socialSecuritySurvivor'));
+  bad(r => { delete r.items.socialSecuritySurvivor; }, /socialSecuritySurvivor: missing/);
+  bad(r => { r.items.socialSecuritySurvivor.value.maxReduction = 1.5; }, /maxReduction/);
+  bad(r => { r.items.socialSecuritySurvivor.value.earlyClaimerFloor = 0; }, /earlyClaimerFloor/);
+  bad(r => { r.items.socialSecuritySurvivor.value.earliestClaimAge = 40; }, /earliestClaimAge/);
+  bad(r => { r.items.socialSecuritySurvivor.value.fullRetirementAge[0].bornThrough = 1999; }, /bornThrough/);
+  const v = loadRates().items.socialSecuritySurvivor.value;
+  assert.equal(v.earliestClaimAge, 60);
+  assert.equal(v.maxReduction, 0.285);
+  assert.equal(v.earlyClaimerFloor, 0.825);
+});

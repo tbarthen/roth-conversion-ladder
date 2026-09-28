@@ -429,3 +429,166 @@ test('state: California adds its senior credit for each person from age 65', () 
   /* Nevada-style no-tax state and a state without a senior credit are unaffected */
   near(assert, run(baseInputs({ ...opts, stateAbbr: 'NY', currentAge: 70 }))[0].taxDetail.stateCredit, 0, 0.01);
 });
+
+/* ---- Social Security survivor benefits ---- */
+
+test('widowed: survivor benefit first (reduced), own benefit with delayed credits from 70', () => {
+  /* born 1965: retirement FRA 67, survivor FRA 67. Survivor at 61 = 72 of 84 months early. */
+  const inp = baseInputs({ currentAge: 61, retirementAge: 61, filingStatus: 'widowed', inflationRate: 0,
+    ssAnnualBenefit: 30000, ssStartAge: 70, survivorBenefit: 30000, survivorBenefitType: 'fra', survivorStartAge: 61 });
+  const n = E.normalizeInputs(inp, td);
+  assert.equal(n.filingStatus, 'single');
+  assert.equal(n.widowed, true);
+  assert.equal(n.survivorAlreadyCollecting, false);
+  const rows = run(inp);
+  const survivor = 30000 * (1 - 0.285 * 72 / 84);
+  near(assert, rows[0].ssIncome, survivor, 0.01);
+  assert.equal(rows[0].ssSource, 'survivor');
+  assert.equal(rows[0].filingStatus, 'single');
+  const at = (age) => rows.find(r => r.age === age);
+  near(assert, at(69).ssIncome, survivor, 0.01);
+  near(assert, at(70).ssIncome, 37200, 0.01);       /* own: 124% of 30,000 beats the survivor benefit */
+  assert.equal(at(70).ssSource, 'own');
+  near(assert, at(70).ssSurvivor, survivor, 0.01);  /* still entitled, just smaller */
+  near(assert, at(70).ssOwn, 37200, 0.01);
+  assertConservation(inp, rows);
+});
+
+test('widowed: own benefit first (reduced), unreduced survivor benefit from survivor FRA', () => {
+  const inp = baseInputs({ currentAge: 62, retirementAge: 62, filingStatus: 'widowed', inflationRate: 0,
+    ssAnnualBenefit: 20000, ssStartAge: 62, survivorBenefit: 30000, survivorBenefitType: 'fra', survivorStartAge: 67 });
+  const rows = run(inp);
+  const at = (age) => rows.find(r => r.age === age);
+  near(assert, at(62).ssIncome, 14000, 0.01);       /* 70% of 20,000; the early own claim never touches the survivor benefit */
+  assert.equal(at(62).ssSource, 'own');
+  near(assert, at(66).ssIncome, 14000, 0.01);
+  near(assert, at(67).ssIncome, 30000, 0.01);
+  assert.equal(at(67).ssSource, 'survivor');
+  near(assert, at(80).ssIncome, 30000, 0.01);
+});
+
+test('widowed: a survivor benefit already being collected is paid as entered; late spouse who claimed early is capped', () => {
+  /* 63, collecting the survivor benefit since 60: 21,450 is what arrives now */
+  const collecting = run(baseInputs({ currentAge: 63, filingStatus: 'widowed', inflationRate: 0,
+    ssAnnualBenefit: 30000, ssStartAge: 70, survivorBenefit: 21450, survivorStartAge: 60 }));
+  assert.equal(E.normalizeInputs(collecting.length && baseInputs({ currentAge: 63, filingStatus: 'widowed', survivorStartAge: 60 }), td).survivorAlreadyCollecting, true);
+  near(assert, collecting[0].ssIncome, 21450, 0.01);
+  near(assert, collecting.find(r => r.age === 70).ssIncome, 37200, 0.01);
+  /* late spouse (born 1964, FRA 67) started at 62 and was getting 21,000: full amount 30,000; survivor at 67 gets 82.5% = 24,750 */
+  const capped = run(baseInputs({ currentAge: 61, filingStatus: 'widowed', inflationRate: 0, ssAnnualBenefit: 0,
+    survivorBenefit: 21000, survivorBenefitType: 'collecting', lateSpouseStartAge: 62, lateSpouseBirthYear: 1964, survivorStartAge: 67 }));
+  assert.equal(capped[0].ssIncome, 0);
+  near(assert, capped.find(r => r.age === 67).ssIncome, 24750, 0.01);
+  /* same, survivor at 60: own reduction (71.5% of 30,000) is below the cap */
+  const early = run(baseInputs({ currentAge: 60, filingStatus: 'widowed', inflationRate: 0, ssAnnualBenefit: 0,
+    survivorBenefit: 21000, survivorBenefitType: 'collecting', lateSpouseStartAge: 62, lateSpouseBirthYear: 1964, survivorStartAge: 60 }));
+  near(assert, early[0].ssIncome, 21450, 0.01);
+  /* late spouse's birth year defaults to the survivor's own */
+  const dflt = run(baseInputs({ currentAge: 61, filingStatus: 'widowed', inflationRate: 0, ssAnnualBenefit: 0,
+    survivorBenefit: 21000, survivorBenefitType: 'collecting', lateSpouseStartAge: 62, survivorStartAge: 67 }));
+  near(assert, dflt.find(r => r.age === 67).ssIncome, 24750, 0.01);
+});
+
+test('married: after the projected death the survivor benefit starts, reduced if before survivor FRA, and own can follow at 70', () => {
+  /* user 60 (born 1966), spouse 64 (born 1962) starts at 65 (86.67% of 24,000 = 20,800) and dies after 66;
+     the first year without the spouse the user is 63 */
+  const base = { currentAge: 60, retirementAge: 60, lifeExpectancy: 90, filingStatus: 'marriedFilingJointly', inflationRate: 0,
+    spouseAge: 64, spouseLifeExpectancy: 66, ssAnnualBenefit: 30000, ssStartAge: 70, spouseSsBenefit: 24000, spouseSsStartAge: 65 };
+  const asap = run(baseInputs({ ...base, survivorStartAge: 60 }));
+  const at = (rows, age) => rows.find(r => r.age === age);
+  assert.equal(asap[0].ssIncome, 0);
+  near(assert, asap[1].ssIncome, 20800, 0.01);                 /* spouse's own benefit */
+  assert.equal(asap[1].ssSource, 'none');
+  assert.equal(at(asap, 63).spouseAlive, false);
+  const sf63 = 1 - 0.285 * 48 / 84;                            /* 48 of 84 months early */
+  near(assert, at(asap, 63).ssIncome, Math.min(24000 * sf63, Math.max(20800, 24000 * 0.825)), 0.01);
+  near(assert, at(asap, 63).ssIncome, 24000 * sf63, 0.01);     /* 20,091: below the RIB-LIM cap of 20,800 */
+  assert.equal(at(asap, 63).ssSource, 'survivor');
+  near(assert, at(asap, 69).ssIncome, 24000 * sf63, 0.01);
+  near(assert, at(asap, 70).ssIncome, 37200, 0.01);
+  assert.equal(at(asap, 70).ssSource, 'own');
+  assertConservation(baseInputs({ ...base, survivorStartAge: 60 }), asap);
+  /* survivor start age 67 (the default): nothing from 63 to 66, then the capped amount */
+  const wait = run(baseInputs(base));
+  assert.equal(at(wait, 63).ssIncome, 0);
+  assert.equal(at(wait, 66).ssIncome, 0);
+  near(assert, at(wait, 67).ssIncome, 20800, 0.01);            /* min(24,000, max(20,800, 19,800)) */
+  near(assert, at(wait, 70).ssIncome, 37200, 0.01);
+});
+
+test('married: a spouse who dies after FRA without claiming leaves delayed credits to the survivor', () => {
+  /* spouse 68 (born 1958, FRA 66y8m) planned to start at 70 but dies after this year: 16 months of credits = 110.67% */
+  const inp = baseInputs({ currentAge: 66, retirementAge: 60, lifeExpectancy: 90, filingStatus: 'marriedFilingJointly', inflationRate: 0,
+    spouseAge: 68, spouseLifeExpectancy: 68, ssAnnualBenefit: 20000, ssStartAge: 67, spouseSsBenefit: 30000, spouseSsStartAge: 70 });
+  const rows = run(inp);
+  assert.equal(rows[0].ssIncome, 0);
+  const credits = 1 + 16 * 0.08 / 12;
+  near(assert, rows[1].ssIncome, 30000 * credits, 0.01);      /* user 67 > survivor FRA (66y8m for 1960): 100% */
+  assert.equal(rows[1].ssSource, 'survivor');
+  assert.equal(rows[1].filingStatus, 'single');
+});
+
+test('claiming suggestion: survivor first and own at 70 when own is the larger benefit; own first when it is the smaller', () => {
+  const widow = baseInputs({ currentAge: 61, retirementAge: 61, filingStatus: 'widowed', preRetirementGrowth: 5, inflationRate: 2.5,
+    ssAnnualBenefit: 30000, ssStartAge: 67, survivorBenefit: 30000, survivorBenefitType: 'fra', survivorStartAge: 67 });
+  const s = E.suggestSocialSecurityClaiming(widow, td, { startYear: START });
+  assert.equal(s.entered.ssStartAge, 67);
+  assert.equal(s.entered.survivorStartAge, 67);
+  assert.equal(s.best.survivorStartAge, 61);
+  assert.equal(s.best.ssStartAge, 70);
+  assert.ok(s.gain > 50000, `gain ${s.gain}`);
+  /* the value is consistent with the projection (today's dollars, discounted at the growth rate) */
+  const rows = run({ ...widow, ssStartAge: 70, survivorStartAge: 61 });
+  const pv = rows.reduce((sum, r, i) => sum + r.ssIncome / Math.pow(1.05, i), 0);
+  near(assert, s.best.value, pv, 1);
+  /* small own benefit: take it at 62, then the survivor benefit later */
+  const smallOwn = E.suggestSocialSecurityClaiming({ ...widow, ssAnnualBenefit: 10000 }, td, { startYear: START });
+  assert.equal(smallOwn.best.ssStartAge, 62);
+  assert.ok(smallOwn.best.survivorStartAge > 62);
+  /* already collecting the survivor benefit: only the own start age is open */
+  const fixed = E.suggestSocialSecurityClaiming({ ...widow, currentAge: 63, survivorStartAge: 60, survivorBenefit: 21450 }, td, { startYear: START });
+  assert.equal(fixed.best.survivorStartAge, 60);
+  assert.equal(fixed.best.ssStartAge, 70);
+  /* nothing to decide: not widowed, or married with the death projected after 70 */
+  assert.equal(E.suggestSocialSecurityClaiming(baseInputs(), td, { startYear: START }), null);
+  assert.equal(E.suggestSocialSecurityClaiming(baseInputs({ filingStatus: 'marriedFilingJointly', spouseAge: 58, spouseLifeExpectancy: 90, spouseSsBenefit: 20000 }), td, { startYear: START }), null);
+  /* married with an early projected death: the survivor benefit is available before 70 */
+  const early = E.suggestSocialSecurityClaiming(baseInputs({ filingStatus: 'marriedFilingJointly', spouseAge: 64, spouseLifeExpectancy: 66, spouseSsBenefit: 24000, spouseSsStartAge: 65, ssStartAge: 67 }), td, { startYear: START });
+  assert.ok(early && early.best.value >= early.entered.value);
+  assert.ok(early.best.survivorStartAge >= 63);
+});
+
+test('optimizer result carries the Social Security plan and the summary describes it', () => {
+  const inp = baseInputs({ currentAge: 61, retirementAge: 61, filingStatus: 'widowed', inflationRate: 0,
+    ssAnnualBenefit: 30000, ssStartAge: 70, survivorBenefit: 30000, survivorBenefitType: 'fra', survivorStartAge: 61 });
+  const result = E.optimizeStrategy(inp, td, { startYear: START, targetBracket: 0.22 });
+  const ss = result.socialSecurity;
+  assert.equal(ss.widowed, true);
+  near(assert, ss.survivor.factor, 1 - 0.285 * 72 / 84, 1e-9);
+  near(assert, ss.survivor.amount, 30000 * (1 - 0.285 * 72 / 84), 0.01);
+  assert.equal(ss.survivor.fromAge, 61);
+  near(assert, ss.own.factor, 1.24, 1e-9);
+  assert.equal(ss.own.fromAge, 70);
+  const s = E.summarizePlan(result, 0);
+  assert.deepEqual(s.ssSegments.map(x => [x.source, x.fromAge]), [['survivor', 61], ['own', 70]]);
+  near(assert, s.ssSegments[0].amountToday, 30000 * (1 - 0.285 * 72 / 84), 0.01);
+  assert.ok(result.claiming && result.claiming.best);
+});
+
+test('validateInputs: survivor fields, and a warning about the earnings test when a benefit starts while still working', () => {
+  const w = E.validateInputs({ currentAge: 58, annualSpending: 1, filingStatus: 'widowed', survivorStartAge: 58, survivorBenefit: -1, lateSpouseStartAge: 61, lateSpouseBirthYear: 1850 });
+  assert.deepEqual(w.errors.map(e => e.field).sort(), ['lateSpouseBirthYear', 'lateSpouseStartAge', 'survivorBenefit', 'survivorStartAge']);
+  const working = E.validateInputs({ currentAge: 58, annualSpending: 1, retirementAge: 66, grossIncome: 80000, ssStartAge: 62, filingStatus: 'widowed', survivorStartAge: 60, survivorBenefit: 20000 }, td);
+  assert.deepEqual(working.warnings.map(x => x.field).sort(), ['ssStartAge', 'survivorStartAge']);
+  assert.match(working.warnings[0].message, /earn/);
+  /* retired before the benefit starts, or starting at FRA: no warning */
+  assert.equal(E.validateInputs({ currentAge: 58, annualSpending: 1, retirementAge: 62, grossIncome: 80000, ssStartAge: 62 }, td).warnings.length, 0);
+  assert.equal(E.validateInputs({ currentAge: 58, annualSpending: 1, retirementAge: 70, grossIncome: 80000, ssStartAge: 67 }, td).warnings.length, 0);
+  /* without tax data the warning is skipped, not crashed */
+  assert.equal(E.validateInputs({ currentAge: 58, annualSpending: 1, retirementAge: 66, grossIncome: 80000, ssStartAge: 62 }).warnings.length, 0);
+  /* married filers ignore the widowed flag; the survivor start age is still validated */
+  const m = E.normalizeInputs({ currentAge: 60, filingStatus: 'marriedFilingJointly', spouseAge: 58, widowed: true, survivorBenefit: 5000 }, td);
+  assert.equal(m.widowed, false);
+  assert.equal(m.survivorBenefit, 0);
+  assert.ok(E.validateInputs({ currentAge: 60, annualSpending: 1, filingStatus: 'marriedFilingJointly', spouseAge: 58, survivorStartAge: 59 }).errors.some(e => e.field === 'survivorStartAge'));
+});

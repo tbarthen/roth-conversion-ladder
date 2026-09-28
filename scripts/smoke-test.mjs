@@ -139,6 +139,38 @@ try {
     await context.close();
   }
 
+  /* 4b. Widowed profile: survivor fields, Social Security note, claiming suggestion */
+  {
+    const { page, errors, context } = await newPage();
+    await page.locator('select').first().selectOption('widow-61');
+    check((await page.locator('label', { hasText: 'Survivor benefit start age' }).count()) === 1, 'survivor fields appear for a widowed profile');
+    check((await page.locator('label', { hasText: 'Had your late spouse started Social Security?' }).count()) === 1, 'late-spouse question shown');
+    await page.getByRole('button', { name: 'Calculate Optimal Strategy' }).first().click();
+    await page.waitForSelector('.plain-headline', { timeout: 30000 });
+    const notes = await page.locator('.plain-notes').innerText();
+    check(/survivor benefit/i.test(notes), 'summary explains the survivor benefit');
+    check(/Social Security claiming:/.test(notes), 'claiming suggestion shown for the default ages');
+    const apply = page.locator('.plain-notes .note-action');
+    check((await apply.count()) === 1, '"Use these ages" button present');
+    await apply.click();
+    await page.waitForSelector('.plain-headline', { timeout: 30000 });
+    await page.waitForFunction(() => !/Social Security claiming:/.test(document.querySelector('.plain-notes')?.innerText || ''), null, { timeout: 30000 });
+    const after = await page.locator('.plain-notes').innerText();
+    check(/survivor benefit of \$[\d,]+ a year from age 61/.test(after), `after applying: survivor benefit from 61 ("${(after.match(/Social Security: [^.]*\./) || [''])[0].slice(0, 120)}")`);
+    check(/your own benefit of \$[\d,]+ a year from age 70/.test(after), 'after applying: own benefit from 70');
+    await page.locator('.details-toggle button').click();
+    await page.locator('.details-view .tab', { hasText: 'Plan: year by year' }).click();
+    const header = await page.locator('.data-table thead', { hasText: 'Sp.Age' }).innerText();
+    check(header.includes('Soc. Sec.'), 'year table has a Social Security column');
+    await page.locator('.details-view .tab', { hasText: 'Summary' }).click();
+    await page.waitForTimeout(300);
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'widowed.png'), fullPage: true });
+    await page.locator('.results-close').click();
+    check((await page.locator('label', { hasText: 'Survivor benefit start age' }).locator('..').locator('input').inputValue()) === '61', 'survivor start age input updated to 61');
+    check(errors.length === 0, `no page errors (${errors.join('; ')})`);
+    await context.close();
+  }
+
   /* 5. Stale data: banner + Check now finds newer published data */
   {
     const old = { ...rates, lastChecked: '2025-01-01', lastUpdated: '2025-01-01' };

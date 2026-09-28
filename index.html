@@ -167,6 +167,34 @@
         "maxCreditAge": 70
       }
     },
+    "socialSecuritySurvivor": {
+      "label": "Social Security survivor benefits: survivor full retirement age and reductions",
+      "sourceName": "SSA: Survivors benefits (if you are the survivor) and survivor benefit reduction chart; POMS RS 00615.320 (RIB-LIM)",
+      "source": "https://www.ssa.gov/benefits/survivors/survivorchartred.html",
+      "effectiveYear": 2026,
+      "indexed": false,
+      "value": {
+        "fullRetirementAge": [
+          {"bornThrough": 1939, "years": 65, "months": 0},
+          {"bornThrough": 1940, "years": 65, "months": 2},
+          {"bornThrough": 1941, "years": 65, "months": 4},
+          {"bornThrough": 1942, "years": 65, "months": 6},
+          {"bornThrough": 1943, "years": 65, "months": 8},
+          {"bornThrough": 1944, "years": 65, "months": 10},
+          {"bornThrough": 1956, "years": 66, "months": 0},
+          {"bornThrough": 1957, "years": 66, "months": 2},
+          {"bornThrough": 1958, "years": 66, "months": 4},
+          {"bornThrough": 1959, "years": 66, "months": 6},
+          {"bornThrough": 1960, "years": 66, "months": 8},
+          {"bornThrough": 1961, "years": 66, "months": 10},
+          {"bornThrough": null, "years": 67, "months": 0}
+        ],
+        "earliestClaimAge": 60,
+        "maxReduction": 0.285,
+        "earlyClaimerFloor": 0.825,
+        "remarriageCutoffAge": 60
+      }
+    },
     "medicareIrmaa": {
       "label": "Medicare IRMAA (Part B and D income-related surcharges)",
       "sourceName": "CMS: 2026 Medicare Parts A & B premiums and deductibles",
@@ -2156,6 +2184,7 @@ h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bot
 .plain-notes li { margin-bottom: 6px; }
 .plain-notes li.bad { color: var(--accent-red); font-weight: 600; }
 .plain-notes li.warn { color: #9a3412; }
+.plain-notes .note-action { display: inline-block; margin-left: 8px; padding: 3px 10px; font-size: 0.8rem; font-weight: 600; color: #fff; background: var(--accent-teal); border: none; border-radius: 6px; cursor: pointer; }
 .plain-alert { background: var(--accent-red-light); border: 1px solid #fca5a5; border-left: 6px solid var(--accent-red); border-radius: var(--radius-lg); padding: 16px 20px; color: #7f1d1d; font-size: 0.95rem; line-height: 1.5; }
 .plain-footnote { font-size: 0.78rem; color: #94a3b8; }
 .details-toggle { text-align: center; margin: 8px 0 20px; }
@@ -2319,6 +2348,23 @@ const SAMPLE_PROFILES = [
       pensionIncome: 0, annualSpending: 55000
     }
   },
+  { value: 'widow-61', label: 'Widow, 61, survivor benefit available',
+    desc: 'Age 61, widowed, $600K traditional, late spouse\u2019s benefit $30K, own benefit $30K at full retirement age',
+    data: {
+      currentAge: 61, retirementAge: 61, lifeExpectancy: 92,
+      filingStatus: 'widowed',
+      spouseAge: '', spouseLifeExpectancy: 90,
+      traditionalBalance: 600000, rothBalance: 60000,
+      taxableBalance: 150000, hsaBalance: 10000,
+      annualContributions: { traditional: 0, roth: 0, taxable: 0, hsa: 0 },
+      grossIncome: 0,
+      ssAnnualBenefit: 30000, ssStartAge: 67,
+      spouseSsBenefit: '', spouseSsStartAge: 67,
+      survivorBenefit: 30000, survivorBenefitType: 'fra', survivorStartAge: 67,
+      lateSpouseStartAge: 67, lateSpouseBirthYear: '',
+      pensionIncome: 0, annualSpending: 60000
+    }
+  },
   { value: 'affluent-near-rmd', label: 'Affluent couple nearing RMDs',
     desc: 'Ages 68 & 65, $2M traditional, already retired, pension income',
     data: {
@@ -2347,11 +2393,18 @@ const INPUT_FIELD_PATHS = [
   'annualContributions.traditional', 'annualContributions.roth',
   'annualContributions.taxable', 'annualContributions.hsa',
   'grossIncome', 'ssAnnualBenefit', 'ssStartAge',
-  'spouseSsBenefit', 'spouseSsStartAge', 'pensionIncome', 'annualSpending',
+  'spouseSsBenefit', 'spouseSsStartAge',
+  'survivorBenefit', 'survivorBenefitType', 'survivorStartAge', 'lateSpouseStartAge', 'lateSpouseBirthYear',
+  'pensionIncome', 'annualSpending',
   'preRetirementGrowth', 'rothGrowth', 'taxableGrowth', 'dividendYield',
   'inflationRate', 'bracketInflation', 'heirTaxRate', 'targetBracket',
   'customConversion', 'taxPaymentSource'
 ];
+
+/* Survivor-benefit fields only matter to widow(er)s (the survivor start age
+   also to married couples), so an older profile without them is not
+   reported as incomplete. */
+const SURVIVOR_FIELD_PATHS = new Set(['survivorBenefit', 'survivorBenefitType', 'survivorStartAge', 'lateSpouseStartAge', 'lateSpouseBirthYear']);
 
 /** 59.5 -> "59½" */
 const ageText = (age) => String(age).replace(/\.5$/, '\u00BD');
@@ -2382,6 +2435,11 @@ const FIELD_LABELS = {
   ssStartAge: 'Social Security Start Age',
   spouseSsBenefit: 'Spouse Social Security Benefit',
   spouseSsStartAge: 'Spouse Social Security Start Age',
+  survivorBenefit: 'Survivor Benefit',
+  survivorBenefitType: 'Late Spouse Had Started Social Security',
+  survivorStartAge: 'Survivor Benefit Start Age',
+  lateSpouseStartAge: 'Late Spouse Social Security Start Age',
+  lateSpouseBirthYear: 'Late Spouse Year of Birth',
   pensionIncome: 'Pension Income',
   annualSpending: 'Annual Spending',
   preRetirementGrowth: 'Pre-Retirement Growth',
@@ -2416,6 +2474,11 @@ const makeDefaultInputs = () => ({
   ssStartAge: 67,
   spouseSsBenefit: '',
   spouseSsStartAge: 67,
+  survivorBenefit: '',
+  survivorBenefitType: 'fra',
+  survivorStartAge: 67,
+  lateSpouseStartAge: 67,
+  lateSpouseBirthYear: '',
   pensionIncome: 0,
   annualSpending: '',
   preRetirementGrowth: 6,
@@ -2506,7 +2569,7 @@ const mergeInputsWithDefaults = (rawImported) => {
   for (const path of INPUT_FIELD_PATHS) {
     const value = getFieldByPath(imported, path);
     if (value === undefined) {
-      missingPaths.push(path);
+      if (!SURVIVOR_FIELD_PATHS.has(path) || imported.filingStatus === 'widowed') missingPaths.push(path);
     } else {
       setFieldByPath(merged, path, value);
     }
@@ -2712,9 +2775,18 @@ function InputForm({ inputs, setInputs, onCalculate, rates, taxDataLine, validat
      the amount entered is what arrives now and is not adjusted again. */
   const ssCollecting = Number(inputs.ssStartAge) < Number(inputs.currentAge);
   const spouseSsCollecting = isMFJ && Number(inputs.spouseSsStartAge) < Number(inputs.spouseAge);
+  const isWidowed = inputs.filingStatus === 'widowed';
+  const survivorCollecting = isWidowed && Number(inputs.survivorStartAge) < Number(inputs.currentAge);
+  const lateSpouseHadStarted = inputs.survivorBenefitType === 'collecting';
+  /* Survivor-benefit figures, from the rates document */
+  const sv = rates.items.socialSecuritySurvivor.value;
+  const survivorPctAtEarliest = `${Math.round((1 - sv.maxReduction) * 1000) / 10}%`;
+  const survivorFloorPct = `${Math.round(sv.earlyClaimerFloor * 1000) / 10}%`;
+  const survivorStartHelp = `As a widow or widower you can start a survivor benefit at ${sv.earliestClaimAge}. It is ${survivorPctAtEarliest} of the full amount at ${sv.earliestClaimAge} and rises each month to 100% at your survivor full retirement age (66\u201367); waiting past that adds nothing. Already collecting it? Enter the age you started. You can take one benefit first and switch to the other later; each year we pay whichever of your two benefits is larger. (Remarrying before ${sv.remarriageCutoffAge} ends the survivor benefit; if that applies, leave the amount blank.)`;
+  const marriedSurvivorHelp = `If your spouse dies first you can take a survivor benefit from ${sv.earliestClaimAge} (${survivorPctAtEarliest} of theirs, rising to 100% at your survivor full retirement age of 66\u201367). We start it at this age or when the projection has your spouse die, whichever is later, and pay whichever of your two benefits is larger each year.`;
 
   /* Personal Info summary */
-  const filingAbbr = { marriedFilingJointly: 'MFJ', single: 'Single', marriedFilingSeparately: 'MFS' };
+  const filingAbbr = { marriedFilingJointly: 'MFJ', single: 'Single', widowed: 'Widowed', marriedFilingSeparately: 'MFS' };
   const selectedState = states.find(s => s.abbr === inputs.stateAbbr);
   const hasOverride = inputs.stateTaxRateOverride !== '' && inputs.stateTaxRateOverride !== null && inputs.stateTaxRateOverride !== undefined;
   const personalSummary = [
@@ -2758,6 +2830,7 @@ function InputForm({ inputs, setInputs, onCalculate, rates, taxDataLine, validat
     inputs.grossIncome > 0 ? `Income: ${fmtCompact(inputs.grossIncome)}` : null,
     inputs.ssAnnualBenefit ? `SS: ${fmtCompact(inputs.ssAnnualBenefit)} at ${inputs.ssStartAge || 67}` : null,
     isMFJ && inputs.spouseSsBenefit ? `Spouse SS: ${fmtCompact(inputs.spouseSsBenefit)} at ${inputs.spouseSsStartAge || 67}` : null,
+    isWidowed && inputs.survivorBenefit ? `Survivor SS: ${fmtCompact(inputs.survivorBenefit)} at ${inputs.survivorStartAge || 67}` : null,
     inputs.pensionIncome > 0 ? `Pension: ${fmtCompact(inputs.pensionIncome)}` : null,
     inputs.annualSpending ? `Spending: ${fmtCompact(inputs.annualSpending)}` : null
   ].filter(Boolean);
@@ -2922,8 +2995,10 @@ function InputForm({ inputs, setInputs, onCalculate, rates, taxDataLine, validat
             options: [
               { value: 'marriedFilingJointly', label: 'Married Filing Jointly' },
               { value: 'single', label: 'Single' },
+              { value: 'widowed', label: 'Single \u2014 widowed' },
               { value: 'marriedFilingSeparately', label: 'Married Filing Separately' }
-            ]
+            ],
+            help: isWidowed ? 'You file as Single; the survivor benefit questions are in the Income section below.' : undefined
           }),
           React.createElement('div', { className: 'form-group', key: 'stateSelect' },
             React.createElement('label', null, `State (${rates.items.stateIncomeTax.effectiveYear} rates)`),
@@ -2999,11 +3074,31 @@ function InputForm({ inputs, setInputs, onCalculate, rates, taxDataLine, validat
             min: 0, prefix: '$', placeholder: ssCollecting ? 'yearly amount you get now' : 'check ssa.gov/myaccount',
             help: ssCollecting ? SS_HELP_COLLECTING : SS_HELP_NOT_YET }),
           field('Social Security start age', 'ssStartAge', { min: 62, max: 70,
-            help: 'Already collecting? Enter the age you started.' }),
+            help: isWidowed ? 'Your own retirement benefit (62 to 70). Already collecting? Enter the age you started. Taking the survivor benefit first does not change what your own benefit will be later.' : 'Already collecting? Enter the age you started.' }),
           isMFJ && field(spouseSsCollecting ? 'Spouse Social Security received now (yearly)' : 'Spouse Social Security at full retirement age (yearly)', 'spouseSsBenefit', {
             min: 0, prefix: '$', help: spouseSsCollecting ? SS_HELP_COLLECTING : SS_HELP_NOT_YET }),
           isMFJ && field('Spouse Social Security start age', 'spouseSsStartAge', { min: 62, max: 70,
             help: 'Already collecting? Enter the age your spouse started.' }),
+          isMFJ && Number(inputs.spouseSsBenefit) > 0 && field('Survivor benefit start age (if your spouse dies first)', 'survivorStartAge', {
+            min: sv.earliestClaimAge, max: 70, help: marriedSurvivorHelp }),
+          isWidowed && field('Survivor benefit start age', 'survivorStartAge', { min: sv.earliestClaimAge, max: 70, help: survivorStartHelp }),
+          isWidowed && !survivorCollecting && field('Had your late spouse started Social Security?', 'survivorBenefitType', {
+            type: 'select',
+            options: [
+              { value: 'fra', label: 'No \u2014 I\u2019ll enter their full-retirement-age amount' },
+              { value: 'collecting', label: 'Yes \u2014 I\u2019ll enter what they were receiving' }
+            ],
+            help: `If they had started early, Social Security caps your survivor benefit (at no less than ${survivorFloorPct} of their full amount); if they had waited past full retirement age, you get the higher amount. If they died after full retirement age without starting, answer No and enter the survivor amount SSA quotes you.` }),
+          isWidowed && field(survivorCollecting ? 'Survivor benefit you receive now (yearly)'
+              : lateSpouseHadStarted ? 'Social Security your late spouse was receiving (yearly)'
+              : 'Your late spouse\u2019s benefit at their full retirement age (yearly)', 'survivorBenefit', {
+            min: 0, prefix: '$', placeholder: survivorCollecting ? 'yearly amount you get now' : 'from their statement or award letter',
+            help: survivorCollecting ? 'You already collect it (start age below current age): enter what you get now. We use it as is.'
+              : 'Today\u2019s dollars. From their Social Security statement, their award letter, or ask SSA for your survivor benefit amount.' }),
+          isWidowed && !survivorCollecting && lateSpouseHadStarted && field('Age your late spouse started Social Security', 'lateSpouseStartAge', { min: 62, max: 70,
+            help: `62 to 70. Starting before their full retirement age limits your survivor benefit to at least ${survivorFloorPct} of their full amount.` }),
+          isWidowed && !survivorCollecting && lateSpouseHadStarted && field('Late spouse\u2019s year of birth', 'lateSpouseBirthYear', { min: 1900, max: 2030, placeholder: 'same as yours',
+            help: 'Sets their full retirement age, which decides whether they started early or late.' }),
           field('Pension / Other Income', 'pensionIncome', { min: 0, prefix: '$', help: 'Starts when you retire; assumed to rise with inflation.' }),
           field('Yearly Spending in Retirement', 'annualSpending', { min: 0, prefix: '$', placeholder: '~70-80% of income',
             help: 'Today\u2019s dollars, before taxes. We add the taxes on top.' })
@@ -3142,7 +3237,7 @@ function TaxDataBanner({ rates, pendingRates, checkState, onCheck, onApply, onDi
 }
 
 /* ---- Plain-English results (default view) ---- */
-function PlainSummary({ result, summary: s, inputs, rates, inflationRate }) {
+function PlainSummary({ result, summary: s, inputs, rates, inflationRate, onApplyClaiming }) {
   const bracketPct = `${Math.round(result.chosen.rate * 100)}%`;
   const years = s.conversionYears;
   const convRange = s.firstConversion && s.lastConversion
@@ -3221,6 +3316,51 @@ function PlainSummary({ result, summary: s, inputs, rates, inflationRate }) {
     notes.push({ text: `Required withdrawals (RMDs) start at age ${s.rmdStartA.age}. Without converting, the first one is about ${fmt(s.rmdStartA.amount / Math.pow(1 + inflationRate / 100, s.rmdStartA.idx))}` +
       (s.rmdStartB ? `; with this plan, about ${fmt(s.rmdStartB.amount / Math.pow(1 + inflationRate / 100, s.rmdStartB.idx))}.` : '; with this plan, none.') });
   }
+  /* Social Security: which benefit is paid when, and a better claiming order if there is one */
+  const ss = s.socialSecurity;
+  if (ss && (ss.survivor || (ss.married && ss.spouse && ss.spouse.amount > 0))) {
+    const pct = (f) => `${Math.round(f * 1000) / 10}%`;
+    const yearsEarly = (b) => { const m = b.fraMonths - b.claimAge * 12; return m >= 12 ? `${Math.round(m / 12 * 10) / 10} years` : `${m} months`; };
+    const survivorWhy = (b) => {
+      if (b.collecting) return ' (what you receive now)';
+      const d = b.deceased;
+      const base = d.claimingFactor > 1 ? d.fraAmount * d.claimingFactor : d.fraAmount;
+      const capped = d.claimingFactor < 1 && b.amount < base * b.factor - 0.5;
+      const reduced = b.factor < 1 && !capped;
+      return ` (${pct(b.amount / base)} of your late spouse\u2019s ${fmt(base)}${d.claimingFactor > 1 ? ', which includes the credits they earned by waiting' : ''}${reduced ? `, because it starts ${yearsEarly(b)} before your survivor full retirement age` : ''}${capped ? ', the most Social Security allows because they started their own benefit early' : ''})`;
+    };
+    const ownWhy = (o) => o.collecting ? ' (what you receive now)' : o.factor !== 1 ? ` (${pct(o.factor)} of your full-retirement-age amount)` : '';
+    const segs = s.ssSegments;
+    const phrase = (seg, i) => seg.source === 'survivor'
+      ? `${i === 0 ? 'a' : 'the'} survivor benefit of ${fmt(seg.amountToday)} a year from age ${seg.fromAge}${segs.findIndex(x => x.source === 'survivor') === i ? survivorWhy(ss.survivor) : ''}`
+      : `your own benefit of ${fmt(seg.amountToday)} a year from age ${seg.fromAge}${segs.findIndex(x => x.source === 'own') === i ? ownWhy(ss.own) : ''}`;
+    let text;
+    if (ss.widowed) {
+      text = segs.length ? `Social Security: ${segs.map(phrase).join(', then ')}.` : 'Social Security: none is paid in this plan.';
+      if (ss.survivor && !segs.some(x => x.source === 'survivor')) text += ' Your own benefit is at least as large as the survivor benefit at every age, so the survivor benefit is never used.';
+      else if (ss.own.amount > 0 && !segs.some(x => x.source === 'own')) text += ' The survivor benefit is larger than your own at every age, so your own benefit is never used.';
+    } else {
+      const after = segs.filter(x => x.fromAge >= ss.deathAge);
+      text = `Social Security: your own ${fmt(ss.own.amount)} a year from ${ss.own.fromAge}${ownWhy(ss.own)} and your spouse\u2019s ${fmt(ss.spouse.amount)} from ${ss.spouse.fromAge}${ss.spouse.collecting ? ' (what they receive now)' : ss.spouse.factor !== 1 ? ` (${pct(ss.spouse.factor)} of their full-retirement-age amount)` : ''}. `;
+      if (ss.deathAge > s.finalAge) text += `The plan ends at ${s.finalAge} with your spouse still alive, so no survivor benefit is used.`;
+      else if (!ss.survivor) text += `After your spouse\u2019s projected death at ${inputs.spouseLifeExpectancy} you keep your own benefit.`;
+      else if (!after.some(x => x.source === 'survivor')) text += `If your spouse dies at ${inputs.spouseLifeExpectancy} as projected (you would be ${ss.deathAge}), you keep your own benefit, which is larger than the survivor benefit.`;
+      else text += `If your spouse dies at ${inputs.spouseLifeExpectancy} as projected (you would be ${ss.deathAge}), ${after.map((seg, i) => (i === 0 ? 'you switch to ' : 'then ') + phrase(seg, segs.indexOf(seg))).join(', ')}.`;
+    }
+    notes.push({ text: `${text} Today\u2019s dollars.` });
+    const c = s.claiming;
+    if (c && c.gain > 500 && onApplyClaiming) {
+      const effSurvivor = (a) => Math.max(a.survivorStartAge, c.married ? c.deathAge : 0);
+      const describe = (a) => {
+        const parts = [];
+        if (ss.survivor && !ss.survivor.collecting) parts.push(`the survivor benefit at ${effSurvivor(a)}${c.married && a.survivorStartAge <= c.deathAge ? ' (as soon as it is available)' : ''}`);
+        if (!ss.own.collecting && ss.own.amount > 0) parts.push(`your own benefit at ${a.ssStartAge}`);
+        return parts.join(' and ');
+      };
+      notes.push({ tone: 'warn', text: `Social Security claiming: starting ${describe(c.best)} would pay about ${about(c.gain)} more over your lifetime than the ages you entered (${describe(c.entered)}), before taxes and in today\u2019s dollars. This compares the benefits alone; the conversion plan above uses the ages you entered.`,
+        action: { label: 'Use these ages and recalculate', onClick: () => onApplyClaiming({ ssStartAge: c.best.ssStartAge, survivorStartAge: c.best.survivorStartAge }) } });
+    }
+  }
   const state = rates.items.stateIncomeTax.value.states.find(x => x.abbr === inputs.stateAbbr);
   const override = inputs.stateTaxRateOverride !== '' && inputs.stateTaxRateOverride != null;
   notes.push({ text: override
@@ -3245,7 +3385,8 @@ function PlainSummary({ result, summary: s, inputs, rates, inflationRate }) {
     React.createElement('div', { className: 'card' },
       React.createElement('h3', null, 'Things to know'),
       React.createElement('ul', { className: 'plain-notes' },
-        notes.map((n, i) => React.createElement('li', { key: i, className: n.tone || '' }, n.text))
+        notes.map((n, i) => React.createElement('li', { key: i, className: n.tone || '' }, n.text,
+          n.action && React.createElement('button', { type: 'button', className: 'note-action', onClick: n.action.onClick }, n.action.label)))
       )
     ),
     React.createElement(AfterTaxChart, { result, inflationRate }),
@@ -3324,7 +3465,7 @@ function YearMath({ result, rates }) {
         r.hsaWithdrawal > 0 && row('HSA withdrawals (non-medical)', r.hsaWithdrawal),
         r.dividendIncome > 0 && row('Dividends (taxable account)', r.dividendIncome),
         r.realizedCapGains > 0 && row('Capital gains from selling taxable investments', r.realizedCapGains),
-        r.ssIncome > 0 && row(`Social Security ${fmt(r.ssIncome)} — taxable part`, t.taxableSS),
+        r.ssIncome > 0 && row(`Social Security ${fmt(r.ssIncome)}${r.ssSource === 'survivor' ? ' (survivor benefit' + (r.ssIncome > r.ssSurvivor + 0.5 ? ' + spouse' : '') + ')' : ''} — taxable part`, t.taxableSS),
         row('Adjusted gross income (AGI)', t.agi, { total: true }),
         section('2. Deductions'),
         row(`Standard deduction${r.age >= 65 ? ' (incl. extra for age 65+)' : ''}`, -t.stdDeduction),
@@ -3432,6 +3573,7 @@ function ProjectionTable({ data, label, showReal, inflationRate }) {
     { name: 'Extra Trad. Wdl', tip: 'Extra withdrawals from Traditional accounts to pay for spending once the taxable account and Roth are used up (taxable income; 10% penalty before 59\u00BD)' },
     { name: 'Dividends', tip: 'Dividend distributions from the taxable brokerage account, based on the dividend yield assumption' },
     { name: 'Cap Gains', tip: 'Realized capital gains from taxable account withdrawals, calculated using the cost-basis ratio' },
+    { name: 'Soc. Sec.', tip: 'Social Security received this year: yours (the larger of your own benefit and any survivor benefit) plus your spouse\u2019s while alive. "S" marks a year in which a survivor benefit is paid' },
     { name: 'Fed Taxable Inc.', tip: 'Federal taxable income after the standard and senior deductions, including dividends and capital gains (which are taxed at their own lower rates)' },
     { name: 'Fed Tax', tip: 'Federal income tax on ordinary income (does not include capital gains tax or NIIT)' },
     { name: 'State Tax', tip: 'State income tax based on your selected state' },
@@ -3482,6 +3624,7 @@ function ProjectionTable({ data, label, showReal, inflationRate }) {
             React.createElement('td', null, row.tradWithdrawal > 0 ? fmt(deflate(row.tradWithdrawal, i)) : '-'),
             React.createElement('td', null, row.dividendIncome > 0 ? fmt(deflate(row.dividendIncome, i)) : '-'),
             React.createElement('td', null, row.realizedCapGains > 0 ? fmt(deflate(row.realizedCapGains, i)) : '-'),
+            React.createElement('td', null, row.ssIncome > 0 ? `${fmt(deflate(row.ssIncome, i))}${row.ssSource === 'survivor' ? ' S' : ''}` : '-'),
             React.createElement('td', null, fmt(deflate(row.taxableIncome, i))),
             React.createElement('td', null, fmt(deflate(row.federalTax, i))),
             React.createElement('td', null, fmt(deflate(row.stateTax, i))),
@@ -3869,7 +4012,8 @@ function KeyAssumptions({ rates }) {
     'After-tax wealth: Roth + taxable + (traditional + HSA) × (1 − heirs’ tax rate). Taxable accounts get a stepped-up basis at death, so no capital-gains tax is charged on them.',
     'Federal tax: ordinary income through the brackets; qualified dividends and long-term gains stacked on top at 0/15/20%, with any unused standard deduction applied to them first; 3.8% NIIT on the lesser of investment income or MAGI over the threshold.',
     'Standard deduction includes the extra amount for each person 65+. The senior deduction ($6,000 per person 65+, phased out at 6% of MAGI above $75K single / $150K joint, not for married filing separately) applies 2025–2028 only.',
-    'Social Security: up to 85% taxable using provisional income (IRS Pub 915). If you have not started yet, your benefit at full retirement age is adjusted for your start age (reduced up to 30% at 62, increased 8%/year after full retirement age up to 70). If your start age is below your current age you already collect, so the amount you enter is used as is. Benefits rise with inflation. A surviving spouse keeps the larger of the two benefits.',
+    'Social Security: up to 85% taxable using provisional income (IRS Pub 915). If you have not started yet, your benefit at full retirement age is adjusted for your start age (reduced up to 30% at 62, increased 8%/year after full retirement age up to 70). If your start age is below your current age you already collect, so the amount you enter is used as is. Benefits rise with inflation. The earnings test (benefits withheld while working before full retirement age) is not modeled.',
+    'Survivor benefits: a widow(er) can take a survivor benefit from 60, at 71.5% of the late spouse’s benefit at 60 rising each month to 100% at the survivor full retirement age (66–67, two birth years behind the retirement one); nothing is added for waiting longer. The late spouse’s benefit includes any delayed credits they earned; if they started early, the survivor benefit is capped at the larger of what they were getting and 82.5% of their full amount (SSA’s RIB-LIM). The survivor and own benefits are separate: each is fixed by its own start age, and each year you receive the larger one (SSA pays your own plus the excess), so “survivor first, own at 70” and the reverse both work. Simplifications: the survivor reduction is applied to the credit-increased amount (SSA may reduce only the full-retirement-age amount and add the credits, a little more); ages are whole years. Not modeled: disabled widow(er)s’ benefits from 50, benefits for a surviving spouse caring for a child, the loss of the survivor benefit on remarriage before 60, and the $255 lump sum.',
     'Medicare IRMAA: surcharge = Part B premium above the standard premium + Part D adjustment, per person on Medicare (65+), based on MAGI from two years earlier, judged on the thresholds for the filing status of that year’s return (a surviving spouse is judged on the joint return for two years). For the first two projection years (no history yet) this year’s income without the conversion is used. Thresholds grow with bracket inflation, premiums with general inflation.',
     'RMDs: start at 72 (born 1950 or earlier), 73 (1951–1959) or 75 (1960+), from the prior year-end balance using the IRS Uniform Lifetime table, or the Joint Life table when your spouse is more than 10 years younger (assumed sole beneficiary).',
     'Early withdrawals: 10% penalty on traditional withdrawals, and on Roth conversions less than 5 years old, before age 59½ (birthdays assumed mid-year); 20% on non-medical HSA withdrawals before 65. Rule-of-55 and 72(t) exceptions and income tax on early Roth earnings are not modeled. Money already in the Roth at the start is treated as seasoned contributions.',
@@ -3877,7 +4021,8 @@ function KeyAssumptions({ rates }) {
     'State tax: federal AGI, less taxable Social Security in states that don’t tax it (Colorado taxes it only for people under 65: each person’s benefits are left out from age 65) and retirement income the state exempts (Pennsylvania and Mississippi: IRA/401(k) withdrawals from 59½ plus Roth conversions and pensions; Illinois: all of them at any age), minus the state’s own standard deduction and personal exemptions, taxed at your state’s brackets (or your flat override); personal exemption credits come off the tax. With a flat override and no state picked, the rate applies to federal taxable income.',
     'State tax limits: partial retirement-income exclusions and credits in other states (e.g. New York’s $20,000 pension and annuity exclusion, Georgia’s retirement exclusion, New Jersey’s pension exclusion) are not modeled, so those states’ tax may be overstated. Also not modeled: income phase-outs of state deductions and exemptions (e.g. Connecticut), extra state deductions for age 65+, other state income adjustments, and local income taxes.',
     'Working years: salary minus pre-tax 401(k)/HSA contributions is taxed; contributions go into the accounts. Pension income starts at retirement and rises with inflation.',
-    'Survivor: after your spouse’s life expectancy you file as Single. The model assumes you outlive your spouse; if your spouse is expected to live longer, the projection runs to their life expectancy with you still alive.',
+    'Survivor: after your spouse’s life expectancy you file as Single, and a survivor benefit on their record is available from the next year (starting at your survivor start age, or 60, if later). If they had not started Social Security, their benefit at death (with delayed credits past full retirement age) is used. The model assumes you outlive your spouse; if your spouse is expected to live longer, the projection runs to their life expectancy with you still alive.',
+    'Claiming suggestion: when a survivor benefit is in play, every whole-year pair of survivor (60–70) and own (62–70) start ages still open to you is valued as the benefits it pays through life expectancy, discounted at your investment growth rate (today’s dollars, before taxes); a pair paying more than $500 over the ages you entered is suggested, never applied on its own. Married couples get it only when the projected death comes before 70.',
     'Not modeled: ACA premium credits, AMT, itemized deductions, head-of-household status, estate taxes, qualified charitable distributions, and exact IRS rounding of indexed amounts.'
   ];
   return React.createElement(Collapsible, { title: 'Key Assumptions', defaultOpen: true },
@@ -4074,7 +4219,7 @@ function App() {
   }, [inputs]);
 
   const calculate = useCallback((inp, tdArg) => {
-    const v = E.validateInputs(inp);
+    const v = E.validateInputs(inp, tdArg);
     setValidation(v);
     if (v.errors.length) {
       setTimeout(() => {
@@ -4108,6 +4253,15 @@ function App() {
     setShowDetails(false);
     calculate(inputs, td);
   }, [calculate, inputs, td]);
+
+  /* "Use these ages": adopt the suggested Social Security claiming ages and rerun */
+  const applyClaiming = useCallback((ages) => {
+    if (!results) return;
+    const next = { ...results.inputs, ssStartAge: ages.ssStartAge, survivorStartAge: ages.survivorStartAge };
+    setInputs(next);
+    setShowDetails(false);
+    calculate(next, td);
+  }, [results, calculate, td]);
 
   const applyPending = useCallback(() => {
     if (!pendingRates) return;
@@ -4166,7 +4320,7 @@ function App() {
           React.createElement('button', { className: 'results-close', onClick: () => setResults(null) }, '← Edit Inputs')
         ),
         banner,
-        React.createElement(PlainSummary, { result: r, summary: results.summary, inputs: results.inputs, rates: results.rates, inflationRate: infl }),
+        React.createElement(PlainSummary, { result: r, summary: results.summary, inputs: results.inputs, rates: results.rates, inflationRate: infl, onApplyClaiming: applyClaiming }),
 
         React.createElement('div', { className: 'details-toggle' },
           React.createElement('button', {

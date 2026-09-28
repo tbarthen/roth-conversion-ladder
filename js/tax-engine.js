@@ -20,7 +20,7 @@ const RATES_SCHEMA_VERSION = 2;
 const REQUIRED_ITEMS = [
   'federalBrackets', 'standardDeduction', 'additionalStandardDeduction65',
   'seniorBonusDeduction', 'capitalGainsBrackets', 'niit',
-  'socialSecurityTaxation', 'socialSecurityClaiming', 'medicareIrmaa',
+  'socialSecurityTaxation', 'socialSecurityClaiming', 'socialSecuritySurvivor', 'medicareIrmaa',
   'rmd', 'penalties', 'stateIncomeTax'
 ];
 const TARGET_BRACKETS = [0.10, 0.12, 0.22, 0.24, 0.32, 0.35];
@@ -96,6 +96,18 @@ function validatePositive(obj, keys, err, max = 1e7) {
   }
 }
 
+/** A full-retirement-age table: rows of { bornThrough, years, months }, ascending, ending with bornThrough null. */
+function validateFraTable(fra, err) {
+  if (!Array.isArray(fra) || fra.length < 2) return err('fullRetirementAge table missing');
+  let prev = -Infinity;
+  fra.forEach((row, i) => {
+    const last = i === fra.length - 1;
+    if (!isObj(row) || !isInt(row.years) || !isInt(row.months) || row.months < 0 || row.months > 11) err(`fullRetirementAge[${i}] invalid`);
+    if (last ? row.bornThrough !== null : (!isInt(row.bornThrough) || row.bornThrough <= prev)) err(`fullRetirementAge[${i}].bornThrough must ascend and end with null`);
+    if (isInt(row.bornThrough)) prev = row.bornThrough;
+  });
+}
+
 const ITEM_VALIDATORS = {
   federalBrackets: (v, err) => validateBracketTable(v, err),
   capitalGainsBrackets: (v, err) => validateBracketTable(v, err, { allowZeroRate: true }),
@@ -125,21 +137,19 @@ const ITEM_VALIDATORS = {
   },
   socialSecurityClaiming: (v, err) => {
     if (!isObj(v)) return err('must be an object');
-    const fra = v.fullRetirementAge;
-    if (!Array.isArray(fra) || fra.length < 2) err('fullRetirementAge table missing');
-    else {
-      let prev = -Infinity;
-      fra.forEach((row, i) => {
-        const last = i === fra.length - 1;
-        if (!isObj(row) || !isInt(row.years) || !isInt(row.months) || row.months < 0 || row.months > 11) err(`fullRetirementAge[${i}] invalid`);
-        if (last ? row.bornThrough !== null : (!isInt(row.bornThrough) || row.bornThrough <= prev)) err(`fullRetirementAge[${i}].bornThrough must ascend and end with null`);
-        if (isInt(row.bornThrough)) prev = row.bornThrough;
-      });
-    }
+    validateFraTable(v.fullRetirementAge, err);
     for (const k of ['earlyReductionFirst36Months', 'earlyReductionPerYearBeyond36', 'delayedCreditPerYear']) {
       if (!isNum(v[k]) || v[k] <= 0 || v[k] >= 1) err(`${k} out of range`);
     }
     if (!isInt(v.earliestClaimAge) || !isInt(v.maxCreditAge) || v.earliestClaimAge >= v.maxCreditAge) err('claim ages invalid');
+  },
+  socialSecuritySurvivor: (v, err) => {
+    if (!isObj(v)) return err('must be an object');
+    validateFraTable(v.fullRetirementAge, err);
+    if (!isInt(v.earliestClaimAge) || v.earliestClaimAge < 50 || v.earliestClaimAge > 65) err('earliestClaimAge out of range');
+    if (!isNum(v.maxReduction) || v.maxReduction <= 0 || v.maxReduction >= 1) err('maxReduction out of range');
+    if (!isNum(v.earlyClaimerFloor) || v.earlyClaimerFloor <= 0 || v.earlyClaimerFloor > 1) err('earlyClaimerFloor out of range');
+    if (!isInt(v.remarriageCutoffAge) || v.remarriageCutoffAge < 50 || v.remarriageCutoffAge > 70) err('remarriageCutoffAge out of range');
   },
   medicareIrmaa: (v, err) => {
     if (!isObj(v)) return err('must be an object');
@@ -402,6 +412,7 @@ function compileTaxData(rates) {
     niit: it.niit.value,
     ssTaxation: it.socialSecurityTaxation.value,
     ssClaiming: it.socialSecurityClaiming.value,
+    ssSurvivor: it.socialSecuritySurvivor.value,
     irmaa: it.medicareIrmaa.value, irmaaYear: year('medicareIrmaa'),
     rmd: {
       startAgeByBirthYear: it.rmd.value.startAgeByBirthYear,
@@ -727,6 +738,155 @@ function ssClaimingFactor(td, birthYear, claimAge) {
 }
 
 /* ============================================================
+   SOCIAL SECURITY SURVIVOR BENEFITS
+   A widow(er) can take a benefit on the late spouse's record from 60 and
+   their own retirement benefit separately; SSA pays the larger (the own
+   benefit plus the excess). See docs/survivor-benefits.md.
+   ============================================================ */
+function survivorFullRetirementAgeMonths(td, birthYear) {
+  for (const row of td.ssSurvivor.fullRetirementAge) {
+    if (row.bornThrough === null || birthYear <= row.bornThrough) return row.years * 12 + row.months;
+  }
+  return 67 * 12;
+}
+
+/**
+ * Survivor benefit multiplier for a widow(er) born `birthYear` who starts
+ * it at `claimAge`: 71.5% at 60, rising evenly each month to 100% at the
+ * survivor full retirement age; nothing extra for waiting longer.
+ */
+function ssSurvivorFactor(td, birthYear, claimAge) {
+  const sv = td.ssSurvivor;
+  const fra = survivorFullRetirementAgeMonths(td, birthYear);
+  const earliest = sv.earliestClaimAge * 12;
+  const claim = Math.max(earliest, claimAge * 12);
+  if (claim >= fra) return 1;
+  return 1 - sv.maxReduction * (fra - claim) / (fra - earliest);
+}
+
+/**
+ * Yearly survivor benefit. deceased: { fraAmount (the late spouse's benefit
+ * at their full retirement age), claimingFactor (their own claiming
+ * adjustment: below 1 they started early, above 1 they earned delayed
+ * credits) }. When they started early, SSA limits the survivor to the larger
+ * of what they were getting and 82.5% of their full amount (RIB-LIM).
+ */
+function survivorBenefitAmount(td, survivorBirthYear, claimAge, deceased) {
+  const pia = Math.max(0, deceased.fraAmount || 0);
+  const f = deceased.claimingFactor > 0 ? deceased.claimingFactor : 1;
+  const sf = ssSurvivorFactor(td, survivorBirthYear, claimAge);
+  if (f < 1) return Math.min(pia * sf, Math.max(pia * f, pia * td.ssSurvivor.earlyClaimerFloor));
+  return pia * f * sf;
+}
+
+/**
+ * The Social Security schedule for a normalized profile: the user's own
+ * benefit, the spouse's while alive, and the survivor benefit (a widow(er)'s
+ * late spouse, or the spouse after the projected death). Each year the user
+ * gets the larger of own and survivor. Amounts are today's dollars; at(k)
+ * grows them with inflation for projection year k.
+ * over: { ssStartAge, survivorStartAge } to try other claiming ages.
+ */
+function socialSecurityPlan(td, inp, startYear, over) {
+  const o = over || {};
+  const sv = td.ssSurvivor;
+  const infl = inp.inflationRate / 100;
+  const birthYear = startYear - inp.currentAge;
+  const married = inp.filingStatus === 'marriedFilingJointly' && inp.spouseAge !== null;
+  const ownStart = o.ssStartAge != null ? o.ssStartAge : inp.ssStartAge;
+  const survivorStart = o.survivorStartAge != null ? o.survivorStartAge : inp.survivorStartAge;
+  const ownFactor = inp.ssAlreadyCollecting ? 1 : ssClaimingFactor(td, birthYear, ownStart);
+  const own = { amount: inp.ssAnnualBenefit * ownFactor, factor: ownFactor, fromAge: inp.ssAlreadyCollecting ? inp.currentAge : ownStart,
+    collecting: inp.ssAlreadyCollecting, fraMonths: fullRetirementAgeMonths(td, birthYear) };
+  const survivorAt = (claimAge, deceased) => ({
+    amount: survivorBenefitAmount(td, birthYear, claimAge, deceased), factor: ssSurvivorFactor(td, birthYear, claimAge),
+    fromAge: claimAge, claimAge, deceased, collecting: false, fraMonths: survivorFullRetirementAgeMonths(td, birthYear)
+  });
+  let spouse = null, deathAge = null, survivor = null;
+  if (married) {
+    const spouseBirthYear = startYear - inp.spouseAge;
+    const f = inp.spouseSsAlreadyCollecting ? 1 : ssClaimingFactor(td, spouseBirthYear, inp.spouseSsStartAge);
+    spouse = { amount: inp.spouseSsBenefit * f, factor: f, fromAge: inp.spouseSsAlreadyCollecting ? inp.spouseAge : inp.spouseSsStartAge, collecting: inp.spouseSsAlreadyCollecting };
+    deathAge = inp.currentAge + (inp.spouseLifeExpectancy - inp.spouseAge) + 1; /* the user's age in the first year without the spouse */
+    if (inp.spouseSsBenefit > 0) {
+      let deceased;
+      if (inp.spouseSsAlreadyCollecting) {
+        const cf = ssClaimingFactor(td, spouseBirthYear, inp.spouseSsStartAge);
+        deceased = { fraAmount: inp.spouseSsBenefit / cf, claimingFactor: cf };
+      } else if (inp.spouseLifeExpectancy >= inp.spouseSsStartAge) {
+        deceased = { fraAmount: inp.spouseSsBenefit, claimingFactor: f };
+      } else {
+        /* died before starting: delayed credits accrue past full retirement age up to the year of death */
+        deceased = { fraAmount: inp.spouseSsBenefit, claimingFactor: Math.max(1, ssClaimingFactor(td, spouseBirthYear, inp.spouseLifeExpectancy)) };
+      }
+      survivor = survivorAt(Math.max(sv.earliestClaimAge, survivorStart, deathAge), deceased);
+    }
+  } else if (inp.widowed && inp.survivorBenefit > 0) {
+    if (inp.survivorAlreadyCollecting) {
+      survivor = { amount: inp.survivorBenefit, factor: 1, fromAge: inp.currentAge, claimAge: inp.survivorStartAge, deceased: null, collecting: true,
+        fraMonths: survivorFullRetirementAgeMonths(td, birthYear) };
+    } else if (inp.survivorBenefitType === 'collecting') {
+      const cf = ssClaimingFactor(td, inp.lateSpouseBirthYear !== null ? inp.lateSpouseBirthYear : birthYear, inp.lateSpouseStartAge);
+      survivor = survivorAt(Math.max(sv.earliestClaimAge, survivorStart), { fraAmount: inp.survivorBenefit / cf, claimingFactor: cf });
+    } else {
+      survivor = survivorAt(Math.max(sv.earliestClaimAge, survivorStart), { fraAmount: inp.survivorBenefit, claimingFactor: 1 });
+    }
+  }
+  const at = (k) => {
+    const age = inp.currentAge + k;
+    const growth = Math.pow(1 + infl, k);
+    const spouseAlive = married && inp.spouseAge + k <= inp.spouseLifeExpectancy;
+    const ownPaid = age >= own.fromAge ? own.amount * growth : 0;
+    const spousePaid = spouse && spouseAlive && inp.spouseAge + k >= spouse.fromAge ? spouse.amount * growth : 0;
+    const survivorPaid = survivor && !spouseAlive && age >= survivor.fromAge ? survivor.amount * growth : 0;
+    const paid = Math.max(ownPaid, survivorPaid);
+    return { age, spouseAlive, own: ownPaid, spouse: spousePaid, survivor: survivorPaid, paid,
+      source: paid <= 0 ? 'none' : survivorPaid > ownPaid ? 'survivor' : 'own' };
+  };
+  return { widowed: !!inp.widowed, married, own, spouse, survivor, deathAge, at };
+}
+
+/**
+ * Best whole-year claiming ages (own benefit 62-70, survivor benefit 60-70)
+ * when a survivor benefit is in play, valued as the benefits paid through
+ * life expectancy discounted at the investment growth rate (today's
+ * dollars, before tax). A benefit already being collected stays fixed.
+ * null when there is nothing to decide (no survivor benefit, or a married
+ * couple whose projected death comes after both benefits are final).
+ */
+function suggestSocialSecurityClaiming(rawInputs, td, opts) {
+  const o = opts || {};
+  const inp = normalizeInputs(rawInputs, td);
+  const startYear = o.startYear || new Date().getFullYear();
+  const plan = socialSecurityPlan(td, inp, startYear);
+  if (!plan.survivor) return null;
+  const c = td.ssClaiming, sv = td.ssSurvivor;
+  if (plan.married && plan.deathAge > c.maxCreditAge) return null;
+  const lastAge = plan.married ? Math.max(inp.lifeExpectancy, inp.spouseLifeExpectancy + (inp.currentAge - inp.spouseAge)) : inp.lifeExpectancy;
+  const disc = 1 + inp.preRetirementGrowth / 100;
+  const value = (ssStartAge, survivorStartAge) => {
+    const p = socialSecurityPlan(td, inp, startYear, { ssStartAge, survivorStartAge });
+    let v = 0;
+    for (let k = 0; k <= lastAge - inp.currentAge; k++) v += p.at(k).paid / Math.pow(disc, k);
+    return v;
+  };
+  const range = (lo, hi, fallback) => { const out = []; for (let a = lo; a <= hi; a++) out.push(a); return out.length ? out : [fallback]; };
+  const ownOptions = plan.own.collecting || inp.ssAnnualBenefit <= 0 ? [inp.ssStartAge]
+    : range(Math.max(c.earliestClaimAge, inp.currentAge), c.maxCreditAge, inp.ssStartAge);
+  const survivorOptions = plan.survivor.collecting ? [inp.survivorStartAge]
+    : range(Math.max(sv.earliestClaimAge, inp.currentAge, plan.married ? plan.deathAge : 0), c.maxCreditAge, inp.survivorStartAge);
+  const entered = { ssStartAge: inp.ssStartAge, survivorStartAge: inp.survivorStartAge, value: value(inp.ssStartAge, inp.survivorStartAge) };
+  let best = entered;
+  for (const own of ownOptions) {
+    for (const surv of survivorOptions) {
+      const v = value(own, surv);
+      if (v > best.value + 1) best = { ssStartAge: own, survivorStartAge: surv, value: v };
+    }
+  }
+  return { entered, best, gain: best.value - entered.value, married: plan.married, deathAge: plan.deathAge };
+}
+
+/* ============================================================
    INPUT NORMALIZATION & VALIDATION
    ============================================================ */
 const toNum = (v) => {
@@ -765,6 +925,12 @@ function normalizeInputs(raw, td) {
      claiming age. Otherwise it is the full-retirement-age amount. */
   const ssStartAge = clamp(Math.round(orDefault(toNum(r.ssStartAge), 67)), 62, 70);
   const spouseSsStartAge = clamp(Math.round(orDefault(toNum(r.spouseSsStartAge), 67)), 62, 70);
+  /* A widow(er) files as single and may have a survivor benefit on the late
+     spouse's record (from 60). Married couples get one after the projected death. */
+  const widowed = filingStatus === 'single' && (r.widowed === true || r.filingStatus === 'widowed');
+  const earliestSurvivor = td && td.ssSurvivor ? td.ssSurvivor.earliestClaimAge : 60;
+  const survivorStartAge = clamp(Math.round(orDefault(toNum(r.survivorStartAge), 67)), earliestSurvivor, 70);
+  const lateBirth = toNum(r.lateSpouseBirthYear);
   return {
     currentAge,
     retirementAge: clamp(Math.round(orDefault(toNum(r.retirementAge), currentAge)), 18, 110),
@@ -796,6 +962,13 @@ function normalizeInputs(raw, td) {
     spouseSsBenefit: isMFJ ? money(r.spouseSsBenefit, 1e6) : 0,
     spouseSsStartAge,
     spouseSsAlreadyCollecting: spouseAge !== null && spouseSsStartAge < spouseAge,
+    widowed,
+    survivorBenefit: widowed ? money(r.survivorBenefit, 1e6) : 0,
+    survivorBenefitType: r.survivorBenefitType === 'collecting' ? 'collecting' : 'fra',
+    lateSpouseStartAge: clamp(Math.round(orDefault(toNum(r.lateSpouseStartAge), 67)), 62, 70),
+    lateSpouseBirthYear: isNaN(lateBirth) ? null : clamp(Math.round(lateBirth), 1900, 2100),
+    survivorStartAge,
+    survivorAlreadyCollecting: widowed && survivorStartAge < currentAge,
     pensionIncome: money(r.pensionIncome, 1e7),
     annualSpending: money(r.annualSpending, 1e7),
     preRetirementGrowth: pct(r.preRetirementGrowth, 6, -10, 30),
@@ -812,7 +985,7 @@ function normalizeInputs(raw, td) {
  * Check raw form inputs. Returns { errors, warnings }, each an array of
  * { field, message } in plain English. Errors block calculation.
  */
-function validateInputs(raw) {
+function validateInputs(raw, td) {
   const r = raw || {};
   const errors = [], warnings = [];
   const E = (field, message) => errors.push({ field, message });
@@ -844,7 +1017,17 @@ function validateInputs(raw) {
     const v = contrib[k];
     if (!blank(v) && (!isFinite(Number(v)) || Number(v) < 0)) E(`annualContributions.${k}`, 'Contributions must be zero or more.');
   }
-  num('ssStartAge', 'Social Security start age', { min: 62, max: 70, integer: true });
+  const ssStart = num('ssStartAge', 'Social Security start age', { min: 62, max: 70, integer: true });
+  const widowed = r.filingStatus === 'widowed' || r.widowed === true;
+  let survivorStart = NaN;
+  if (widowed) {
+    num('survivorBenefit', 'survivor benefit', { min: 0, max: 1e8 });
+    num('lateSpouseStartAge', "late spouse's Social Security start age", { min: 62, max: 70, integer: true });
+    num('lateSpouseBirthYear', "late spouse's year of birth", { min: 1900, max: 2030, integer: true });
+  }
+  if (widowed || r.filingStatus === 'marriedFilingJointly') {
+    survivorStart = num('survivorStartAge', 'survivor benefit start age', { min: 60, max: 70, integer: true });
+  }
   num('stateTaxRateOverride', 'state tax rate', { min: 0, max: 20 });
   num('preRetirementGrowth', 'growth rate', { min: -10, max: 30 });
   num('rothGrowth', 'Roth growth rate', { min: -10, max: 30 });
@@ -855,6 +1038,18 @@ function validateInputs(raw) {
   num('heirTaxRate', "heirs' tax rate", { min: 0, max: 60 });
 
   if (isFinite(age) && isFinite(le) && le <= age) E('lifeExpectancy', 'Life expectancy must be higher than your current age.');
+  /* Earnings test: a benefit drawn before full retirement age while still
+     working is partly withheld; the projection does not model it. */
+  if (td && td.ssClaiming && isFinite(age) && isFinite(ret) && Number(r.grossIncome) > 0) {
+    const birthYear = new Date().getFullYear() - age;
+    const earningsTest = (field, claimAge, fraMonths, what) => {
+      if (isFinite(claimAge) && claimAge < ret && claimAge * 12 < fraMonths) {
+        W(field, `You plan to draw ${what} from ${claimAge} while still working until ${ret}. Before full retirement age Social Security withholds part of a benefit when you earn more than its yearly limit (and raises the benefit later to make up for it); the projection does not model that.`);
+      }
+    };
+    earningsTest('ssStartAge', ssStart, fullRetirementAgeMonths(td, birthYear), 'Social Security');
+    if (widowed) earningsTest('survivorStartAge', survivorStart, survivorFullRetirementAgeMonths(td, birthYear), 'the survivor benefit');
+  }
   if (isFinite(age) && isFinite(ret) && ret < age) W('retirementAge', 'Retirement age is before your current age — we’ll treat you as already retired.');
   const basis = Number(r.taxableCostBasis), bal = Number(r.taxableBalance) || 0;
   if (!blank(r.taxableCostBasis) && isFinite(basis) && basis > bal) {
@@ -898,10 +1093,7 @@ function runProjection(rawInputs, scenario, opts, td) {
   const pen = td.penalties;
   const startedMFJ = inp.filingStatus === 'marriedFilingJointly' && inp.spouseAge !== null;
   const birthYear = startYear - inp.currentAge;
-  const spouseBirthYear = inp.spouseAge !== null ? startYear - inp.spouseAge : null;
-  const ownSsFactor = inp.ssAlreadyCollecting ? 1 : ssClaimingFactor(td, birthYear, inp.ssStartAge);
-  const spouseSsFactor = spouseBirthYear !== null && !inp.spouseSsAlreadyCollecting
-    ? ssClaimingFactor(td, spouseBirthYear, inp.spouseSsStartAge) : 1;
+  const ssPlan = socialSecurityPlan(td, inp, startYear);
   const lastAge = startedMFJ
     ? Math.max(inp.lifeExpectancy, inp.spouseLifeExpectancy + (inp.currentAge - inp.spouseAge))
     : inp.lifeExpectancy;
@@ -982,17 +1174,10 @@ function runProjection(rawInputs, scenario, opts, td) {
     const salary = working ? inp.grossIncome : 0;
     const wages = Math.max(0, salary - pretax);
     const pension = working ? 0 : indexAmount(inp.pensionIncome, startYear, year, infl);
-    const growth = Math.pow(1 + infl, k);
-    let ownSs = age >= inp.ssStartAge ? inp.ssAnnualBenefit * ownSsFactor * growth : 0;
-    let spouseSs = 0;
-    if (startedMFJ) {
-      const spouseBenefit = inp.spouseSsBenefit * spouseSsFactor * growth;
-      if (spouseAlive) {
-        if (sAge >= inp.spouseSsStartAge) spouseSs = spouseBenefit;
-      } else if (age >= inp.ssStartAge && inp.spouseLifeExpectancy >= inp.spouseSsStartAge) {
-        ownSs = Math.max(ownSs, spouseBenefit); /* survivor keeps the larger benefit */
-      }
-    }
+    /* The user's benefit is the larger of their own and any survivor benefit
+       (a late spouse's record, or the spouse's after the projected death). */
+    const ss = ssPlan.at(k);
+    const ownSs = ss.paid, spouseSs = ss.spouse;
     const ssIncome = ownSs + spouseSs;
     /* A state that taxes Social Security but leaves out each person's benefits
        from an age (Colorado, 65): the share of this year's benefits that is out. */
@@ -1178,7 +1363,7 @@ function runProjection(rawInputs, scenario, opts, td) {
     results.push({
       year, age, spouseAge: sAge, spouseAlive, filingStatus, working,
       tradBal, rothBal, taxBal, taxBasis, hsaBal,
-      salary, wages, pension, ssIncome, taxableSS: tax.taxableSS, rmd,
+      salary, wages, pension, ssIncome, ssOwn: ss.own, ssSurvivor: ss.survivor, ssSource: ss.source, taxableSS: tax.taxableSS, rmd,
       conversionAmount: conv, taxFromConversion,
       taxableWithdrawal: w.fromTaxable, rothWithdrawal: w.fromRoth,
       tradWithdrawal: w.fromTrad, hsaWithdrawal: w.fromHSA,
@@ -1221,7 +1406,8 @@ function strategyScore(scenario) {
  */
 function optimizeStrategy(rawInputs, td, opts) {
   const o = opts || {};
-  const base = { taxPaymentSource: o.taxPaymentSource, startYear: o.startYear };
+  const startYear = o.startYear || new Date().getFullYear();
+  const base = { taxPaymentSource: o.taxPaymentSource, startYear };
   const scenarioA = runProjection(rawInputs, 'noConversion', base, td);
   const rates = o.targetBracket === 'auto' || o.targetBracket === undefined
     ? TARGET_BRACKETS
@@ -1244,7 +1430,9 @@ function optimizeStrategy(rawInputs, td, opts) {
     scenarioC,
     chosen: { rate: best.rate, irmaaMode: best.irmaaMode, auto: rates.length > 1 },
     candidates: candidates.map(({ rate, irmaaMode, afterTaxEstate, score }) => ({ rate, irmaaMode, afterTaxEstate, score })),
-    breakevenAge: findBreakevenAge(scenarioA, best.scenario)
+    breakevenAge: findBreakevenAge(scenarioA, best.scenario),
+    socialSecurity: (({ widowed, married, own, spouse, survivor, deathAge }) => ({ widowed, married, own, spouse, survivor, deathAge }))(socialSecurityPlan(td, normalizeInputs(rawInputs, td), startYear)),
+    claiming: suggestSocialSecurityClaiming(rawInputs, td, { startYear })
   };
 }
 
@@ -1281,6 +1469,14 @@ function summarizePlan(result, inflationRate) {
   const totalConvertedToday = convRows.reduce((s, x) => s + deflate(x.r.conversionAmount, x.i), 0);
   const runsOut = (s) => { const r = s.find(row => row.unmetSpending > 1); return r ? r.age : null; };
   const rmdStart = (s) => { const r = s.find(row => row.rmd > 0); return r ? { age: r.age, amount: r.rmd, idx: s.indexOf(r) } : null; };
+  /* Which of the user's benefits is paid from which age (own / survivor), today's dollars */
+  const ssSegments = [];
+  scenarioB.forEach((r, i) => {
+    const src = r.ssSource || 'none';
+    if (src === 'none') return;
+    const last = ssSegments[ssSegments.length - 1];
+    if (!last || last.source !== src) ssSegments.push({ source: src, fromAge: r.age, amountToday: deflate(Math.max(r.ssOwn || 0, r.ssSurvivor || 0), i) });
+  });
   return {
     worthIt: convRows.length > 0 && gain > 500,
     gainToday: gain,
@@ -1299,7 +1495,10 @@ function summarizePlan(result, inflationRate) {
     rmdStartA: rmdStart(scenarioA),
     rmdStartB: rmdStart(scenarioB),
     finalAge: lastB.age,
-    breakevenAge: result.breakevenAge
+    breakevenAge: result.breakevenAge,
+    ssSegments,
+    socialSecurity: result.socialSecurity || null,
+    claiming: result.claiming || null
   };
 }
 
@@ -1310,6 +1509,7 @@ return {
   standardDeduction, seniorBonusDeduction, capitalGainsTax, netInvestmentIncomeTax,
   taxableSocialSecurity, stateAllowances, computeYearTax, irmaaSurcharge, irmaaThresholds,
   rmdStartAge, rmdDivisor, requiredMinimumDistribution, fullRetirementAgeMonths, ssClaimingFactor,
+  survivorFullRetirementAgeMonths, ssSurvivorFactor, survivorBenefitAmount, socialSecurityPlan, suggestSocialSecurityClaiming,
   normalizeInputs, validateInputs, runProjection, optimizeStrategy, strategyScore, findBreakevenAge, effectiveRate,
   summarizePlan
 };
