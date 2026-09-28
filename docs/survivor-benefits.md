@@ -147,9 +147,12 @@ that.
 ## 4. Rules modeled, with sources
 
 The SSA pages could not be opened from the development sandbox (network
-policy), so the citations below are to the pages that carry each rule; the
-rules themselves are statutory and stable. The owner should spot-check the
-survivor full-retirement-age table against the chart page once.
+policy) when this was written. Checked against ssa.gov on 2026-09-28: the
+survivor benefit starts at 71.5% at 60 and reaches 100% at survivor FRA
+(https://www.ssa.gov/benefits/survivors/survivorchartred.html), and survivor
+FRA is 66 for 1945-1956 births rising to 67 for 1962 and later
+(https://www.ssa.gov/international/Agreement_Pamphlets/full-retirement-age-survivors.html),
+matching the table below.
 
 | Rule | Modeled as | Source |
 | --- | --- | --- |
