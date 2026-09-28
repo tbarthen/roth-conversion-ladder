@@ -163,14 +163,14 @@ test('paying tax from the conversion: withheld tax never reaches the Roth', () =
 });
 
 test('survivor: filing switches to single after spouse dies; larger SS benefit continues', () => {
+  /* both 70 and collecting since 67: the amounts entered are what they receive now */
   const inp = baseInputs({ currentAge: 70, lifeExpectancy: 80, filingStatus: 'marriedFilingJointly', spouseAge: 70, spouseLifeExpectancy: 72,
     ssAnnualBenefit: 20000, spouseSsBenefit: 30000, ssStartAge: 67, spouseSsStartAge: 67, inflationRate: 0 });
   const rows = run(inp);
-  const f = E.ssClaimingFactor(td, START - 70, 67);
   assert.equal(rows[2].filingStatus, 'marriedFilingJointly');
-  near(assert, rows[2].ssIncome, 50000 * f, 0.01);
+  near(assert, rows[2].ssIncome, 50000, 0.01);
   assert.equal(rows[3].filingStatus, 'single');
-  near(assert, rows[3].ssIncome, 30000 * f, 0.01);
+  near(assert, rows[3].ssIncome, 30000, 0.01);
   assert.equal(rows[3].medicarePeople, 1);
 });
 
@@ -192,10 +192,49 @@ test('state: brackets by default, a typed rate overrides, no state means no tax'
   const flat = run(baseInputs({ stateAbbr: 'CA', stateTaxRateOverride: 5, traditionalBalance: 1e6 }), 'custom', { customConversion: 80000 });
   const none = run(baseInputs({ traditionalBalance: 1e6 }), 'custom', { customConversion: 80000 });
   assert.equal(none[0].stateTax, 0);
-  near(assert, flat[0].stateTax, 0.05 * flat[0].taxableIncome, 0.01);
   assert.ok(ca[0].stateTax > 0 && ca[0].stateTax < 0.133 * ca[0].taxableIncome, 'progressive, below top rate');
+  /* the override rate applies to California's own base: state income less the
+     CA deduction, less the CA credit */
+  const t = flat[0].taxDetail;
+  near(assert, t.stateTaxableIncome, t.stateIncome - 5540, 0.01);
+  near(assert, flat[0].stateTax, 0.05 * t.stateTaxableIncome - 153, 0.01);
   /* legacy profiles: a bare stateTaxRate with no state acts as an override */
   assert.equal(E.normalizeInputs({ stateAbbr: '--', stateTaxRate: 4 }, td).stateMode, 'flat');
+});
+
+test('state: Pennsylvania, Illinois and Mississippi do not tax a retiree\'s Roth conversion', () => {
+  /* 65, retired, no taxable account (so no dividends or gains), SS not started:
+     the year's only income is the 60,000 conversion. */
+  const inputs = (stateAbbr) => baseInputs({ currentAge: 65, retirementAge: 60, stateAbbr, taxableBalance: 0, taxableCostBasis: 0,
+    rothBalance: 200000, ssStartAge: 70 });
+  for (const abbr of ['PA', 'IL', 'MS']) {
+    const rows = run(inputs(abbr), 'custom', { customConversion: 60000 });
+    assert.equal(rows[0].conversionAmount, 60000, abbr);
+    assert.equal(rows[0].stateTax, 0, abbr);
+    near(assert, rows[0].taxDetail.stateExcludedRetirement, 60000, 0.01, abbr);
+  }
+  /* Ohio has no exclusion: 60,000 - 2,400 exemption = 57,600 is taxed:
+     1.27448% x 26,050 (Ohio's $332 base tax) + 2.75% x 31,550 = 332.00 + 867.63 = 1,199.63 */
+  const oh = run(inputs('OH'), 'custom', { customConversion: 60000 });
+  near(assert, oh[0].stateTax, 1199.62704, 0.01);
+});
+
+test('Social Security: a benefit already being collected is not adjusted for the claiming age again', () => {
+  /* 72, started at 70: the 30,000 entered is what arrives now, not the
+     full-retirement-age amount (x 1.24 would count the delay credit twice). */
+  const collecting = run(baseInputs({ currentAge: 72, ssStartAge: 70, inflationRate: 0 }));
+  near(assert, collecting[0].ssIncome, 30000, 0.01);
+  /* 66, started at 62: no second early-claiming cut either */
+  near(assert, run(baseInputs({ currentAge: 66, ssStartAge: 62, inflationRate: 0 }))[0].ssIncome, 30000, 0.01);
+  /* spouse 68, started at 63: 20,000 as entered */
+  const mfj = run(baseInputs({ currentAge: 72, ssStartAge: 70, inflationRate: 0, filingStatus: 'marriedFilingJointly',
+    spouseAge: 68, spouseLifeExpectancy: 90, spouseSsBenefit: 20000, spouseSsStartAge: 63 }));
+  near(assert, mfj[0].ssIncome, 50000, 0.01);
+  /* not collecting yet (start age at or above current age): still the FRA amount, adjusted */
+  const later = run(baseInputs({ currentAge: 68, ssStartAge: 70, inflationRate: 0 }));
+  near(assert, later[2].ssIncome, 30000 * E.ssClaimingFactor(td, START - 68, 70), 0.01);
+  assert.equal(E.normalizeInputs(baseInputs({ currentAge: 72, ssStartAge: 70 }), td).ssAlreadyCollecting, true);
+  assert.equal(E.normalizeInputs(baseInputs({ currentAge: 70, ssStartAge: 70 }), td).ssAlreadyCollecting, false);
 });
 
 test('fuzz: random profiles never produce NaN, negatives or lost money', () => {

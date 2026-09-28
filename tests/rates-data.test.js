@@ -64,6 +64,12 @@ test('validation rejects broken documents', () => {
   bad(r => { r.items.stateIncomeTax.value.states[1].abbr = 'AL'; }, /duplicate/);
   bad(r => { r.items.stateIncomeTax.value.states[4].rate = 12; }, /does not match/);
   bad(r => { r.items.stateIncomeTax.value.states.pop(); }, /expected 51/);
+  bad(r => { delete r.items.stateIncomeTax.value.states[0].standardDeduction; }, /AL: standardDeduction/);
+  bad(r => { r.items.stateIncomeTax.value.states[0].personalExemption.single = -1; }, /AL: personalExemption/);
+  bad(r => { r.items.stateIncomeTax.value.states[0].personalCredit = 5; }, /AL: personalCredit/);
+  bad(r => { r.items.stateIncomeTax.value.states.find(s => s.abbr === 'PA').retirementExclusion.source = 'http://x'; }, /PA: retirementExclusion/);
+  bad(r => { r.items.stateIncomeTax.value.states.find(s => s.abbr === 'IL').retirementExclusion.iraFromAge = 90; }, /IL: retirementExclusion/);
+  bad(r => { r.items.stateIncomeTax.value.states.find(s => s.abbr === 'MS').retirementExclusion.conversions = 'yes'; }, /MS: retirementExclusion/);
   bad(r => { r.lastChecked = '2026-13-45'; }, /lastChecked/);
   bad(r => { r.schemaVersion = 1; }, /schemaVersion/);
   assert.deepEqual(E.validateRates(null), ['rates document must be a JSON object']);

@@ -24,6 +24,10 @@ const REQUIRED_ITEMS = [
   'rmd', 'penalties', 'stateIncomeTax'
 ];
 const TARGET_BRACKETS = [0.10, 0.12, 0.22, 0.24, 0.32, 0.35];
+/* State data has single and joint figures; other filers use the single ones. */
+const STATE_FILING_STATUSES = ['single', 'marriedFilingJointly'];
+/* Per-state amounts from the Tax Foundation table, with sanity limits. */
+const STATE_ALLOWANCES = [['standardDeduction', 1e6], ['personalExemption', 1e6], ['personalCredit', 1e4]];
 const STALE_AFTER_DAYS = 45;
 const MIN_CONVERSION = 1000;
 const IRMAA_CUSHION = 1000;
@@ -212,8 +216,23 @@ const ITEM_VALIDATORS = {
       if (typeof s.name !== 'string' || !/^[A-Za-z .'-]+$/.test(s.name)) err(`${s.abbr}: name invalid`);
       if (!isNum(s.rate) || s.rate < 0 || s.rate > 20) err(`${s.abbr}: rate ${s.rate} out of range`);
       if (typeof s.taxesSocialSecurity !== 'boolean') err(`${s.abbr}: taxesSocialSecurity must be true/false`);
+      for (const [k, max] of STATE_ALLOWANCES) {
+        const a = s[k];
+        if (!isObj(a) || !STATE_FILING_STATUSES.every(fs => isNum(a[fs]) && a[fs] >= 0 && a[fs] <= max)) {
+          err(`${s.abbr}: ${k} must give single and marriedFilingJointly amounts from 0 to ${max}`);
+        }
+      }
+      if (s.retirementExclusion !== undefined) {
+        const x = s.retirementExclusion;
+        if (!isObj(x) || !isNum(x.iraFromAge) || x.iraFromAge < 0 || x.iraFromAge > 75
+            || typeof x.conversions !== 'boolean' || typeof x.pensions !== 'boolean'
+            || typeof x.sourceName !== 'string' || !x.sourceName
+            || typeof x.source !== 'string' || !/^https:\/\/[^\s]+$/.test(x.source)) {
+          err(`${s.abbr}: retirementExclusion needs iraFromAge (0-75), conversions and pensions (true/false), sourceName and an https source`);
+        }
+      }
       if (!isObj(s.brackets)) return err(`${s.abbr}: brackets missing`);
-      for (const fs of ['single', 'marriedFilingJointly']) {
+      for (const fs of STATE_FILING_STATUSES) {
         const rows = s.brackets[fs];
         if (!Array.isArray(rows) || rows.length < 1) { err(`${s.abbr}.brackets.${fs} missing`); continue; }
         let prevRate = -1, prevUpper = 0;
@@ -506,14 +525,57 @@ function taxableSocialSecurity(td, ssBenefits, otherIncome, filingStatus) {
   return Math.min(ssBenefits * r2, tier1 + (provisional - t.additionalAmount) * r2);
 }
 
+/* ============================================================
+   STATE INCOME TAX
+   ============================================================ */
+const stateFilingStatus = (filingStatus) => filingStatus === 'marriedFilingJointly' ? 'marriedFilingJointly' : 'single';
+
+/**
+ * A state's own standard deduction + personal exemptions (subtracted from
+ * state income) and personal credits (subtracted from the tax), for one
+ * filing status and year. Indexed like the state brackets. Married filing
+ * separately uses the single amounts.
+ */
+function stateAllowances(td, state, filingStatus, year, rate) {
+  const fs = stateFilingStatus(filingStatus);
+  const idx = (v) => indexAmount(v, td.statesYear, year, rate);
+  return {
+    deduction: idx(state.standardDeduction[fs] + state.personalExemption[fs]),
+    credit: idx(state.personalCredit[fs])
+  };
+}
+
+/**
+ * Retirement income a state leaves out of its income: Roth conversions and
+ * pensions when it exempts them, and other IRA/401(k) withdrawals from
+ * `iraFromAge` (birthday assumed mid-year, so 59 counts as 59 1/2).
+ */
+function stateExcludedRetirementIncome(exclusion, p) {
+  if (!exclusion) return 0;
+  const ira = Math.max(0, p.iraDistributions || 0);
+  const conversion = Math.min(ira, Math.max(0, p.rothConversion || 0));
+  let excluded = 0;
+  if (exclusion.conversions) excluded += conversion;
+  if ((p.age || 0) + 0.5 >= exclusion.iraFromAge) excluded += ira - conversion;
+  if (exclusion.pensions) excluded += Math.max(0, p.pension || 0);
+  return excluded;
+}
+
 /**
  * Full federal + state tax for one year.
  * p: { filingStatus, year, age, spouseAge, wages, pension, iraDistributions,
+ *      rothConversion (the part of iraDistributions converted to Roth),
  *      hsaTaxable, ssBenefits, dividends, capitalGains, stateRate (percent,
  *      flat) or stateBrackets (progressive, already indexed),
- *      stateTaxesSocialSecurity, bracketInflation (decimal) }
- * State tax is an approximation: it applies the state's rates to federal
- * taxable income (less taxable Social Security in states that exempt it).
+ *      stateTaxesSocialSecurity, stateDeduction and stateCredit (from
+ *      stateAllowances), stateRetirementExclusion, bracketInflation (decimal) }
+ * State tax: state income = federal AGI, less taxable Social Security in
+ * states that exempt it and retirement income the state excludes, minus
+ * the state's standard deduction and personal exemptions; personal credits
+ * come off the tax. Without state figures (stateDeduction omitted: a flat
+ * rate typed with no state picked) the base is federal taxable income less
+ * exempt Social Security. Deduction phase-outs, age-based extra state
+ * deductions and partial retirement exclusions are not modeled.
  */
 function computeYearTax(td, p) {
   const fs = p.filingStatus;
@@ -533,14 +595,22 @@ function computeYearTax(td, p) {
   const federalTax = ordinaryIncomeTax(ordinaryTaxableIncome, brackets);
   const cgTax = capitalGainsTax(ordinaryTaxableIncome, preferentialIncome, cgBrackets);
   const niit = netInvestmentIncomeTax(td, agi, preferentialGross, fs);
-  const stateTaxableIncome = Math.max(0, taxableIncome - (p.stateTaxesSocialSecurity ? 0 : taxableSS));
-  const stateTax = p.stateBrackets
+  const exemptSS = p.stateTaxesSocialSecurity ? 0 : taxableSS;
+  const hasStateFigures = p.stateDeduction != null;
+  const stateExcludedRetirement = hasStateFigures ? Math.min(agi - exemptSS, stateExcludedRetirementIncome(p.stateRetirementExclusion, p)) : 0;
+  const stateIncome = hasStateFigures ? Math.max(0, agi - exemptSS - stateExcludedRetirement) : Math.max(0, taxableIncome - exemptSS);
+  const stateDeduction = hasStateFigures ? Math.max(0, p.stateDeduction) : 0;
+  const stateTaxableIncome = Math.max(0, stateIncome - stateDeduction);
+  const stateCredit = hasStateFigures ? Math.max(0, p.stateCredit || 0) : 0;
+  const stateTaxBeforeCredit = p.stateBrackets
     ? ordinaryIncomeTax(stateTaxableIncome, p.stateBrackets.map(([r, u]) => [r, u === null ? Infinity : u]))
     : stateTaxableIncome * ((p.stateRate || 0) / 100);
+  const stateTax = Math.max(0, stateTaxBeforeCredit - stateCredit);
   return {
     ordinaryIncome, preferentialGross, incomeBeforeSS, taxableSS, agi, magi: agi,
     stdDeduction, seniorBonus, taxableIncome, preferentialIncome, ordinaryTaxableIncome,
-    brackets, cgBrackets, federalTax, cgTax, niit, stateTaxableIncome, stateTax,
+    brackets, cgBrackets, federalTax, cgTax, niit,
+    stateIncome, stateExcludedRetirement, stateDeduction, stateTaxableIncome, stateCredit, stateTax,
     marginalRate: marginalRate(ordinaryTaxableIncome, brackets),
     bracketFill: bracketFill(ordinaryTaxableIncome, brackets),
     incomeTax: federalTax + cgTax + niit + stateTax
@@ -666,18 +736,25 @@ function normalizeInputs(raw, td) {
   let override = toNum(r.stateTaxRateOverride);
   if (isNaN(override) && !state && r.stateTaxRateOverride === undefined) override = toNum(r.stateTaxRate);
   const stateMode = !isNaN(override) ? 'flat' : state ? 'brackets' : 'none';
+  const spouseAge = isMFJ && !isNaN(spouseAgeNum) ? clamp(Math.round(spouseAgeNum), 18, 110) : null;
+  /* A start age below the current age means the benefit is already being
+     paid: the amount entered is what arrives now, already adjusted for the
+     claiming age. Otherwise it is the full-retirement-age amount. */
+  const ssStartAge = clamp(Math.round(orDefault(toNum(r.ssStartAge), 67)), 62, 70);
+  const spouseSsStartAge = clamp(Math.round(orDefault(toNum(r.spouseSsStartAge), 67)), 62, 70);
   return {
     currentAge,
     retirementAge: clamp(Math.round(orDefault(toNum(r.retirementAge), currentAge)), 18, 110),
     lifeExpectancy: clamp(Math.round(orDefault(toNum(r.lifeExpectancy), 90)), currentAge + 1, 120),
     filingStatus,
-    spouseAge: isMFJ && !isNaN(spouseAgeNum) ? clamp(Math.round(spouseAgeNum), 18, 110) : null,
+    spouseAge,
     spouseLifeExpectancy: clamp(Math.round(orDefault(toNum(r.spouseLifeExpectancy), 90)), 19, 120),
     stateAbbr: state ? state.abbr : '--',
     stateMode,
     stateTaxRate: stateMode === 'flat' ? clamp(override, 0, 20) : stateMode === 'brackets' ? state.rate : 0,
     stateBrackets: stateMode === 'brackets' ? state.brackets : null,
     stateTaxesSocialSecurity: state ? state.taxesSocialSecurity : false,
+    state: state || null,
     traditionalBalance: money(r.traditionalBalance),
     rothBalance: money(r.rothBalance),
     taxableBalance,
@@ -691,9 +768,11 @@ function normalizeInputs(raw, td) {
     },
     grossIncome: money(r.grossIncome, 1e8),
     ssAnnualBenefit: money(r.ssAnnualBenefit, 1e6),
-    ssStartAge: clamp(Math.round(orDefault(toNum(r.ssStartAge), 67)), 62, 70),
+    ssStartAge,
+    ssAlreadyCollecting: ssStartAge < currentAge,
     spouseSsBenefit: isMFJ ? money(r.spouseSsBenefit, 1e6) : 0,
-    spouseSsStartAge: clamp(Math.round(orDefault(toNum(r.spouseSsStartAge), 67)), 62, 70),
+    spouseSsStartAge,
+    spouseSsAlreadyCollecting: spouseAge !== null && spouseSsStartAge < spouseAge,
     pensionIncome: money(r.pensionIncome, 1e7),
     annualSpending: money(r.annualSpending, 1e7),
     preRetirementGrowth: pct(r.preRetirementGrowth, 6, -10, 30),
@@ -797,8 +876,9 @@ function runProjection(rawInputs, scenario, opts, td) {
   const startedMFJ = inp.filingStatus === 'marriedFilingJointly' && inp.spouseAge !== null;
   const birthYear = startYear - inp.currentAge;
   const spouseBirthYear = inp.spouseAge !== null ? startYear - inp.spouseAge : null;
-  const ownSsFactor = ssClaimingFactor(td, birthYear, inp.ssStartAge);
-  const spouseSsFactor = spouseBirthYear !== null ? ssClaimingFactor(td, spouseBirthYear, inp.spouseSsStartAge) : 1;
+  const ownSsFactor = inp.ssAlreadyCollecting ? 1 : ssClaimingFactor(td, birthYear, inp.ssStartAge);
+  const spouseSsFactor = spouseBirthYear !== null && !inp.spouseSsAlreadyCollecting
+    ? ssClaimingFactor(td, spouseBirthYear, inp.spouseSsStartAge) : 1;
   const lastAge = startedMFJ
     ? Math.max(inp.lifeExpectancy, inp.spouseLifeExpectancy + (inp.currentAge - inp.spouseAge))
     : inp.lifeExpectancy;
@@ -897,14 +977,17 @@ function runProjection(rawInputs, scenario, opts, td) {
     const spendingTarget = working ? 0 : indexAmount(inp.annualSpending, startYear, year, infl);
     const tradAvailable = Math.max(0, tradBal - rmd);
     const stateBrackets = inp.stateBrackets
-      ? adjustedBrackets(inp.stateBrackets, td.statesYear, filingStatus === 'marriedFilingJointly' ? 'marriedFilingJointly' : 'single', year, bInfl)
+      ? adjustedBrackets(inp.stateBrackets, td.statesYear, stateFilingStatus(filingStatus), year, bInfl)
       : null;
+    const stateAllow = inp.state ? stateAllowances(td, inp.state, filingStatus, year, bInfl) : null;
 
     const taxParams = (conv, w) => ({
       filingStatus, year, age, spouseAge: spouseForTax,
-      wages, pension, iraDistributions: rmd + conv + w.fromTrad, hsaTaxable: w.fromHSA,
+      wages, pension, iraDistributions: rmd + conv + w.fromTrad, rothConversion: conv, hsaTaxable: w.fromHSA,
       ssBenefits: ssIncome, dividends, capitalGains: w.gains,
       stateRate: inp.stateTaxRate, stateBrackets, stateTaxesSocialSecurity: inp.stateTaxesSocialSecurity,
+      stateDeduction: stateAllow ? stateAllow.deduction : null, stateCredit: stateAllow ? stateAllow.credit : 0,
+      stateRetirementExclusion: inp.state ? inp.state.retirementExclusion : null,
       bracketInflation: bInfl
     });
 
@@ -1194,7 +1277,7 @@ return {
   indexAmount, validateRates, formatRatesJson, ratesFreshness, isNewerRates, laggingItems, compileTaxData,
   getBrackets, getCapitalGainsBrackets, ordinaryIncomeTax, marginalRate, bracketFill, bracketCeiling,
   standardDeduction, seniorBonusDeduction, capitalGainsTax, netInvestmentIncomeTax,
-  taxableSocialSecurity, computeYearTax, irmaaSurcharge, irmaaThresholds,
+  taxableSocialSecurity, stateAllowances, computeYearTax, irmaaSurcharge, irmaaThresholds,
   rmdStartAge, rmdDivisor, requiredMinimumDistribution, fullRetirementAgeMonths, ssClaimingFactor,
   normalizeInputs, validateInputs, runProjection, optimizeStrategy, strategyScore, findBreakevenAge, effectiveRate,
   summarizePlan

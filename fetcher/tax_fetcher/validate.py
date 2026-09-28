@@ -227,6 +227,9 @@ def _v_penalties(v, err):
 
 
 _NAME = re.compile(r"^[A-Za-z .'-]+$")
+_URL = re.compile(r"^https://\S+$")
+STATE_FILING_STATUSES = ("single", "marriedFilingJointly")
+STATE_ALLOWANCES = (("standardDeduction", 1e6), ("personalExemption", 1e6), ("personalCredit", 1e4))
 
 
 def _v_states(v, err):
@@ -250,11 +253,23 @@ def _v_states(v, err):
             err(f"{ab}: rate {s.get('rate')} out of range")
         if not isinstance(s.get("taxesSocialSecurity"), bool):
             err(f"{ab}: taxesSocialSecurity must be true/false")
+        for k, maximum in STATE_ALLOWANCES:
+            a = s.get(k)
+            if not isinstance(a, dict) or not all(_num(a.get(fs)) and 0 <= a[fs] <= maximum for fs in STATE_FILING_STATUSES):
+                err(f"{ab}: {k} must give single and marriedFilingJointly amounts from 0 to {maximum:g}")
+        if "retirementExclusion" in s:
+            x = s["retirementExclusion"]
+            if not isinstance(x, dict) or not _num(x.get("iraFromAge")) or not 0 <= x["iraFromAge"] <= 75 \
+                    or not isinstance(x.get("conversions"), bool) or not isinstance(x.get("pensions"), bool) \
+                    or not isinstance(x.get("sourceName"), str) or not x["sourceName"] \
+                    or not isinstance(x.get("source"), str) or not _URL.match(x["source"]):
+                err(f"{ab}: retirementExclusion needs iraFromAge (0-75), conversions and pensions (true/false), "
+                    "sourceName and an https source")
         br = s.get("brackets")
         if not isinstance(br, dict):
             err(f"{ab}: brackets missing")
             continue
-        for fs in ("single", "marriedFilingJointly"):
+        for fs in STATE_FILING_STATUSES:
             rows = br.get(fs)
             if not isinstance(rows, list) or not rows:
                 err(f"{ab}.brackets.{fs} missing")
@@ -355,8 +370,9 @@ def _leaves(value, path=""):
 def compare_to_prior(key, prior_value, new_value, max_change=MAX_CHANGE):
     """Return problems where a figure moved more than max_change vs. before.
 
-    State data is compared per state: the top rate, the number of brackets
-    for each filing status, and every bracket rate and upper bound. A state
+    State data is compared per state: the top rate, the standard deduction,
+    personal exemption and personal credit, the number of brackets for each
+    filing status, and every bracket rate and upper bound. A state
     that lost a bracket row or gained one (a partial scrape or a real
     restructuring) is flagged for a human either way. Other items must keep
     the same shape.
@@ -371,6 +387,7 @@ def compare_to_prior(key, prior_value, new_value, max_change=MAX_CHANGE):
                 continue
             if _moved(old["rate"], s["rate"], max_change):
                 problems.append(f"{key}: {s['abbr']} top rate {old['rate']}% -> {s['rate']}% (more than {int(max_change * 100)}%)")
+            problems.extend(_compare_state_allowances(key, s["abbr"], old, s, max_change))
             problems.extend(_compare_state_brackets(key, s["abbr"], old.get("brackets"), s.get("brackets"), max_change))
         return problems
     old = dict(_leaves(prior_value))
@@ -382,6 +399,18 @@ def compare_to_prior(key, prior_value, new_value, max_change=MAX_CHANGE):
     for path in sorted(set(old) & set(new)):
         if _moved(old[path], new[path], max_change):
             problems.append(f"{key}: {path} {old[path]} -> {new[path]} (more than {int(max_change * 100)}%)")
+    return problems
+
+
+def _compare_state_allowances(key, abbr, old, new, max_change):
+    problems = []
+    for k, _ in STATE_ALLOWANCES:
+        oa, na = old.get(k), new.get(k)
+        if not isinstance(oa, dict) or not isinstance(na, dict):
+            continue
+        for fs in STATE_FILING_STATUSES:
+            if _num(oa.get(fs)) and _num(na.get(fs)) and _moved(oa[fs], na[fs], max_change):
+                problems.append(f"{key}: {abbr} {k} ({fs}) {oa[fs]} -> {na[fs]} (more than {int(max_change * 100)}%)")
     return problems
 
 

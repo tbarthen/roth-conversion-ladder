@@ -144,6 +144,83 @@ test('computeYearTax: retiree with SS, IRA, dividends and progressive state tax'
   near(assert, flat.stateTax, 5000);
 });
 
+const stateOf = (abbr) => td.states.find(s => s.abbr === abbr);
+
+test("state allowances: the state's own standard deduction + personal exemptions, and personal credits", () => {
+  /* Tax Foundation 2026: California $5,540 / $11,080 standard deduction, $153 / $306 credit;
+     Alabama $3,000 / $8,500 standard deduction + $1,500 / $3,000 exemption. */
+  assert.deepEqual(E.stateAllowances(td, stateOf('CA'), S, Y, 0), { deduction: 5540, credit: 153 });
+  assert.deepEqual(E.stateAllowances(td, stateOf('CA'), J, Y, 0), { deduction: 11080, credit: 306 });
+  assert.deepEqual(E.stateAllowances(td, stateOf('CA'), M, Y, 0), { deduction: 5540, credit: 153 });
+  assert.deepEqual(E.stateAllowances(td, stateOf('AL'), J, Y, 0), { deduction: 11500, credit: 0 });
+  assert.deepEqual(E.stateAllowances(td, stateOf('PA'), S, Y, 0), { deduction: 0, credit: 0 });
+  /* Utah's "standard deduction" is a credit */
+  assert.deepEqual(E.stateAllowances(td, stateOf('UT'), S, Y, 0), { deduction: 0, credit: 966 });
+  /* indexed like the state brackets */
+  const later = E.stateAllowances(td, stateOf('CA'), S, 2027, 0.02);
+  near(assert, later.deduction, 5650.8);
+  near(assert, later.credit, 156.06);
+});
+
+test('computeYearTax: state income starts from the state deduction, not federal taxable income', () => {
+  /* Single, 70, California. Federal AGI 85,500 (see above) less 25,500 taxable
+     SS (CA does not tax it) = 60,000; less the CA deduction 5,540 = 54,460.
+     1% x 11,079 + 2% x 15,185 + 4% x 15,188 + 6% x 13,008 = 1,802.49; less the
+     $153 personal credit = 1,649.49. (Federal taxable income less SS would
+     have given 36,480.) */
+  const ca = stateOf('CA');
+  const t = E.computeYearTax(td, {
+    filingStatus: S, year: Y, age: 70, iraDistributions: 50000, ssBenefits: 30000, dividends: 10000,
+    stateBrackets: ca.brackets.single, stateTaxesSocialSecurity: false, stateDeduction: 5540, stateCredit: 153
+  });
+  near(assert, t.stateIncome, 60000);
+  near(assert, t.stateDeduction, 5540);
+  near(assert, t.stateTaxableIncome, 54460);
+  near(assert, t.stateTax, 1649.49);
+  /* the credit never makes the tax negative */
+  const small = E.computeYearTax(td, {
+    filingStatus: S, year: Y, age: 40, wages: 8000,
+    stateBrackets: ca.brackets.single, stateDeduction: 5540, stateCredit: 153
+  });
+  assert.equal(small.stateTax, 0);
+  /* a flat rate typed with a state picked uses the same state base: (40,000 - 5,540) x 5% - 153 */
+  const flat = E.computeYearTax(td, { filingStatus: S, year: Y, age: 40, wages: 40000, stateRate: 5, stateDeduction: 5540, stateCredit: 153 });
+  near(assert, flat.stateTax, 1570);
+});
+
+test('computeYearTax: states that exempt IRA withdrawals, Roth conversions and pensions', () => {
+  const tax = (abbr, p) => {
+    const s = stateOf(abbr);
+    const a = E.stateAllowances(td, s, S, Y, 0);
+    return E.computeYearTax(td, {
+      filingStatus: S, year: Y, stateBrackets: s.brackets.single, stateTaxesSocialSecurity: s.taxesSocialSecurity,
+      stateDeduction: a.deduction, stateCredit: a.credit, stateRetirementExclusion: s.retirementExclusion, ...p
+    });
+  };
+  /* Pennsylvania, 65: IRA 70,000 (30,000 of it converted) and pension 10,000
+     are exempt; only the 5,000 of dividends is taxed: 3.07% x 5,000 = 153.50 */
+  const pa65 = tax('PA', { age: 65, iraDistributions: 70000, rothConversion: 30000, pension: 10000, dividends: 5000 });
+  near(assert, pa65.stateExcludedRetirement, 80000);
+  near(assert, pa65.stateTax, 153.5);
+  /* Pennsylvania, 55: the conversion is still exempt, the other 20,000 is not
+     (under 59 1/2): 3.07% x 20,000 = 614 */
+  const pa55 = tax('PA', { age: 55, iraDistributions: 50000, rothConversion: 30000 });
+  near(assert, pa55.stateTax, 614);
+  /* 59 counts as 59 1/2 (birthdays mid-year, as for the early-withdrawal penalty) */
+  near(assert, tax('PA', { age: 59, iraDistributions: 50000 }).stateTax, 0);
+  /* Illinois, any age: 40,000 converted at 50 is exempt; wages 10,000 less the
+     $2,925 exemption = 7,075 x 4.95% = 350.21 */
+  near(assert, tax('IL', { age: 50, wages: 10000, iraDistributions: 40000, rothConversion: 40000 }).stateTax, 350.2125);
+  /* Mississippi, 50: conversion 20,000 exempt, the other 40,000 taxed; less the
+     2,300 deduction + 6,000 exemption = 31,700; 0% to 10,000, 4% above = 868 */
+  near(assert, tax('MS', { age: 50, iraDistributions: 60000, rothConversion: 20000 }).stateTax, 868);
+  /* Mississippi, 65: all 60,000 exempt; dividends 20,000 - 8,300 = 11,700 -> 4% x 1,700 = 68 */
+  near(assert, tax('MS', { age: 65, iraDistributions: 60000, rothConversion: 20000, dividends: 20000 }).stateTax, 68);
+  /* A state without an exclusion taxes it all: California, 65, 60,000 IRA:
+     60,000 - 5,540 = 54,460 -> 1,802.49 - 153 = 1,649.49 */
+  near(assert, tax('CA', { age: 65, iraDistributions: 60000, rothConversion: 20000 }).stateTax, 1649.49);
+});
+
 test('IRMAA: surcharge = Part B above standard + Part D, per person', () => {
   const irmaa = (magi, fs, year = Y, people = 1, bi = 0, pi = 0) => E.irmaaSurcharge(td, magi, fs, year, bi, pi, people);
   assert.equal(irmaa(109000, S).annual, 0);

@@ -23,17 +23,25 @@ GROUPS = (
 STATUTORY = ("seniorBonusDeduction", "niit", "socialSecurityTaxation", "socialSecurityClaiming", "rmd", "penalties")
 
 
+STATE_ALLOWANCE_KEYS = ("standardDeduction", "personalExemption", "personalCredit")
+
+
 def _merge_states(prior_value, parsed):
-    """Build a new stateIncomeTax value from parsed rates, keeping names and
-    the Social Security flag from the prior data (overrides are dropped)."""
+    """Build a new stateIncomeTax value from parsed rates and deductions,
+    keeping names, the Social Security flag and the hand-maintained
+    retirement-income exclusions from the prior data (overrides are dropped)."""
     states, missing = [], []
     for s in prior_value["states"]:
         p = parsed.get(s["abbr"])
         if not p:
             missing.append(s["abbr"])
             continue
-        states.append({"abbr": s["abbr"], "name": s["name"], "rate": p["rate"],
-                       "taxesSocialSecurity": s["taxesSocialSecurity"], "brackets": p["brackets"]})
+        new = {"abbr": s["abbr"], "name": s["name"], "rate": p["rate"], "taxesSocialSecurity": s["taxesSocialSecurity"]}
+        new.update({k: p[k] for k in STATE_ALLOWANCE_KEYS})
+        if "retirementExclusion" in s:
+            new["retirementExclusion"] = s["retirementExclusion"]
+        new["brackets"] = p["brackets"]
+        states.append(new)
     return {"states": states}, missing
 
 
@@ -43,8 +51,12 @@ def _state_discrepancies(prior_value, parsed):
         p = parsed.get(s["abbr"])
         if p is None:
             out.append(f"{s['abbr']} missing from the page")
-        elif not s.get("override") and abs(p["rate"] - s["rate"]) > 1e-6:
-            out.append(f"{s['abbr']}: page says {p['rate']}%, data has {s['rate']}%")
+        elif not s.get("override"):
+            if abs(p["rate"] - s["rate"]) > 1e-6:
+                out.append(f"{s['abbr']}: page says {p['rate']}%, data has {s['rate']}%")
+            for k in STATE_ALLOWANCE_KEYS:
+                if differs(s.get(k), p[k]):
+                    out.append(f"{s['abbr']}: page says {k} {p[k]}, data has {s.get(k)}")
     return out
 
 

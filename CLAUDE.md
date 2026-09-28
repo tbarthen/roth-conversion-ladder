@@ -19,6 +19,7 @@ Single-page React app (no build tools) that shows whether Roth conversions lower
 ## Rules for changes
 - Tax math goes in `js/tax-engine.js` with a unit test in `tests/`. Never hard-code a tax figure in code — add it to `data/rates.json` (with source URL and effective year) and read it from there.
 - After editing `data/rates.json`, run `node scripts/sync-rates.js` (keeps the embedded fallback identical). The Python fetcher writes the same canonical format (`fetcher/tax_fetcher/ratesfmt.py`); keep the two formatters in step.
+- Each state entry carries `standardDeduction`, `personalExemption` and `personalCredit` (single / joint) from the Tax Foundation table; the fetcher re-parses them. An optional `retirementExclusion` (`iraFromAge`, `conversions`, `pensions`, `sourceName`, `source`) marks a state that exempts IRA withdrawals / Roth conversions / pensions (currently PA, IL, MS). It is maintained by hand with its own source, and the fetcher carries it forward. Partial exclusions in other states are a documented limitation (Key Assumptions), not modeled.
 - A state entry with `"override": true` was corrected by hand (e.g. a mid-year retroactive law); the fetcher won't flag or replace it until the next tax year's table.
 - Before pushing, all of these must pass:
   ```bash

@@ -13,7 +13,8 @@ Sources (all public HTML pages):
   * Medicare IRMAA: CMS "<year> Medicare Parts A & B Premiums and
     Deductibles" fact sheet.
   * State income tax: Tax Foundation's "State Individual Income Tax Rates
-    and Brackets, <year>" table.
+    and Brackets, <year>" table (brackets, standard deductions and personal
+    exemptions; exemptions given as a tax credit become personalCredit).
 Statutory items (NIIT, Social Security taxation and claiming rules, RMD
 tables, penalties, the 2025-2028 senior deduction) are not re-fetched;
 they only change by legislation.
@@ -385,17 +386,64 @@ def _to_brackets(pairs):
     return out
 
 
+_NO_AMOUNT = ("", "n.a.", "n.a", "n/a", "none")
+_ALLOWANCE_KEYS = ("standardDeduction", "personalExemption", "personalCredit")
+
+
+def _allowance_columns(header):
+    """{(kind, filing status): column} for the standard deduction and
+    personal exemption columns ("Standard Deduction (Couple)", ...)."""
+    cols = {}
+    for i, c in enumerate(header or []):
+        c = c.lower()
+        kind = "standardDeduction" if "standard deduction" in c else "personalExemption" if "personal exemption" in c else None
+        if kind is None or "dependent" in c:
+            continue
+        fs = "single" if "single" in c else "marriedFilingJointly" if any(w in c for w in ("couple", "joint", "married")) else None
+        if fs:
+            cols[(kind, fs)] = i
+    return cols
+
+
+def _allowance_amount(cell):
+    """('deduction' | 'credit', amount) for one cell; 'n.a.' and blank are 0."""
+    t = cell.strip().lower()
+    if t in _NO_AMOUNT:
+        return "deduction", 0.0
+    amounts = money(cell)
+    if len(amounts) != 1:
+        raise ParseError(f"unexpected deduction/exemption cell '{cell}'")
+    return ("credit" if "credit" in t else "deduction"), amounts[0]
+
+
+def _allowances(row, cols):
+    """{standardDeduction, personalExemption, personalCredit} for a state's
+    first row. A "$153 credit" in either column is a tax credit."""
+    out = {k: {"single": 0.0, "marriedFilingJointly": 0.0} for k in _ALLOWANCE_KEYS}
+    for (kind, fs), col in cols.items():
+        what, amount = _allowance_amount(row[col] if col < len(row) else "")
+        out["personalCredit" if what == "credit" else kind][fs] += amount
+    return {k: {fs: _int_or_float(v) for fs, v in d.items()} for k, d in out.items()}
+
+
+def _zero_allowances():
+    return {k: {"single": 0, "marriedFilingJointly": 0} for k in _ALLOWANCE_KEYS}
+
+
 def parse_states(html, year):
-    """Return {abbr: {"rate": top%, "brackets": {single, marriedFilingJointly}}}."""
+    """Return {abbr: {"rate": top%, "standardDeduction": {single, marriedFilingJointly},
+    "personalExemption": {...}, "personalCredit": {...}, "brackets": {single, marriedFilingJointly}}}."""
     tables, text = parse_tables(html)
     _require_year(text, year)
-    best, best_has_joint = {}, False
+    best, best_has_joint, best_allow = {}, False, {}
     for table in tables:
-        found, current, gains_only = {}, None, set()
+        found, current, gains_only, allow = {}, None, set(), {}
         header = next((r for r in table if any("single" in c.lower() for c in r)
                        and any(("married" in c.lower() or "joint" in c.lower()) for c in r)), None)
-        single_cols = [i for i, c in enumerate(header or []) if "single" in c.lower()]
-        joint_cols = [i for i, c in enumerate(header or []) if "married" in c.lower() or "joint" in c.lower()]
+        allowance_cols = _allowance_columns(header)
+        bracket_header = [("" if i in allowance_cols.values() else c) for i, c in enumerate(header or [])]
+        single_cols = [i for i, c in enumerate(bracket_header) if "single" in c.lower()]
+        joint_cols = [i for i, c in enumerate(bracket_header) if "married" in c.lower() or "joint" in c.lower()]
         for row in table:
             if not row or row is header:
                 continue
@@ -409,11 +457,14 @@ def parse_states(html, year):
                     # e.g. Washington: no tax on wages, IRA withdrawals or conversions
                     gains_only.add(abbr)
                     found[abbr] = {"single": [(0.0, 0.0)], "joint": [(0.0, 0.0)]}
+                    allow[abbr] = _zero_allowances()
                     current = None
                     continue
                 current = abbr
                 if not continuation or abbr not in found:
                     found[current] = {"single": [], "joint": []}
+                    if len(allowance_cols) == 4:
+                        allow[current] = _allowances(row, allowance_cols)
             elif row[0].strip():
                 current = None   # footnote / header row
                 continue
@@ -431,9 +482,13 @@ def parse_states(html, year):
                 if len(pairs) >= 2:
                     found[current]["joint"].append(pairs[1])
         if len(found) > len(best):
-            best, best_has_joint = found, bool(single_cols and joint_cols)
+            best, best_has_joint, best_allow = found, bool(single_cols and joint_cols), allow
     if len(best) < 51:
         raise ParseError(f"state table has {len(best)} states, expected 51")
+    missing_allow = sorted(set(best) - set(best_allow))
+    if missing_allow:
+        raise ParseError("standard deduction / personal exemption columns not found"
+                         + (f" for {', '.join(missing_allow[:5])}" if len(missing_allow) < len(best) else ""))
     out = {}
     for abbr, d in best.items():
         if not d["single"]:
@@ -447,5 +502,10 @@ def parse_states(html, year):
         top = single[-1][0] * 100
         if abs(joint[-1][0] * 100 - top) > 1e-6:
             raise ParseError(f"{abbr}: single and joint top rates differ")
-        out[abbr] = {"rate": _int_or_float(round(top, 4)), "brackets": {"single": single, "marriedFilingJointly": joint}}
+        if top == 0:
+            allowances = _zero_allowances()   # no wage tax: nothing to deduct (e.g. Washington's gains-only tax)
+        else:
+            allowances = best_allow[abbr]
+        out[abbr] = {"rate": _int_or_float(round(top, 4)), **allowances,
+                     "brackets": {"single": single, "marriedFilingJointly": joint}}
     return out

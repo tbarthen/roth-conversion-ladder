@@ -85,6 +85,13 @@ class Validation(unittest.TestCase):
         self.assertProblem(lambda r: r["items"]["medicareIrmaa"]["value"]["tiers"]["single"][2].__setitem__("magiOver", 1), "ascending")
         self.assertProblem(lambda r: r["items"]["stateIncomeTax"]["value"]["states"][4].__setitem__("rate", 12), "does not match")
         self.assertProblem(lambda r: r["items"]["stateIncomeTax"]["value"]["states"].pop(), "expected 51")
+        self.assertProblem(lambda r: r["items"]["stateIncomeTax"]["value"]["states"][0].pop("standardDeduction"),
+                           "AL: standardDeduction")
+        self.assertProblem(lambda r: r["items"]["stateIncomeTax"]["value"]["states"][0]["personalCredit"].__setitem__("single", -1),
+                           "AL: personalCredit")
+        pa = lambda r: next(s for s in r["items"]["stateIncomeTax"]["value"]["states"] if s["abbr"] == "PA")
+        self.assertProblem(lambda r: pa(r)["retirementExclusion"].__setitem__("source", "http://x"), "PA: retirementExclusion")
+        self.assertProblem(lambda r: pa(r)["retirementExclusion"].__setitem__("iraFromAge", 90), "PA: retirementExclusion")
         self.assertProblem(lambda r: r.__setitem__("lastChecked", "yesterday"), "lastChecked")
         self.assertEqual(validate_rates([]), ["rates document must be a JSON object"])
 
@@ -111,6 +118,20 @@ class Validation(unittest.TestCase):
         ks_jump = copy.deepcopy(ks_old)
         ks_jump["states"][0]["brackets"]["marriedFilingJointly"][0][1] = 23000
         self.assertEqual(len(compare_to_prior("stateIncomeTax", ks_old, ks_jump)), 1)
+        # So are the standard deduction, exemption and credit (0 -> anything counts as a move).
+        allow = lambda sd, pe, pc: {"states": [{"abbr": "MS", "rate": 4, "standardDeduction": sd, "personalExemption": pe,
+                                               "personalCredit": pc}]}
+        ms_old = allow({"single": 2300, "marriedFilingJointly": 4600}, {"single": 6000, "marriedFilingJointly": 12000},
+                       {"single": 0, "marriedFilingJointly": 0})
+        ms_indexed = allow({"single": 2400, "marriedFilingJointly": 4800}, {"single": 6000, "marriedFilingJointly": 12000},
+                           {"single": 0, "marriedFilingJointly": 0})
+        self.assertEqual(compare_to_prior("stateIncomeTax", ms_old, ms_indexed), [])
+        ms_jump = allow({"single": 2300, "marriedFilingJointly": 4600}, {"single": 0, "marriedFilingJointly": 12000},
+                        {"single": 50, "marriedFilingJointly": 0})
+        problems = compare_to_prior("stateIncomeTax", ms_old, ms_jump)
+        self.assertEqual(len(problems), 2, problems)
+        self.assertTrue(any("personalExemption (single)" in p for p in problems))
+        self.assertTrue(any("personalCredit (single)" in p for p in problems))
         self.assertFalse(differs(old, copy.deepcopy(old)))
         self.assertTrue(differs(old, {"single": [[0.1, 10001], [0.2, None]]}))
 
@@ -167,7 +188,43 @@ class Parsers(unittest.TestCase):
         # A "- Iowa" row with no rates must not wipe Iowa's flat rate.
         self.assertEqual(parsed["IA"]["brackets"]["single"], [[0.038, None]])
         # Washington taxes capital gains only: nothing on wages, IRA withdrawals or conversions.
-        self.assertEqual(parsed["WA"], {"rate": 0, "brackets": {"single": [[0, None]], "marriedFilingJointly": [[0, None]]}})
+        zero = {"single": 0, "marriedFilingJointly": 0}
+        self.assertEqual(parsed["WA"], {"rate": 0, "standardDeduction": zero, "personalExemption": zero, "personalCredit": zero,
+                                        "brackets": {"single": [[0, None]], "marriedFilingJointly": [[0, None]]}})
+
+    def test_states_parse_standard_deduction_exemption_and_credits(self):
+        parsed = sources.parse_states(fixture("states_2026.html"), 2026)
+        pick = lambda ab: {k: parsed[ab][k] for k in ("standardDeduction", "personalExemption", "personalCredit")}
+        zero = {"single": 0, "marriedFilingJointly": 0}
+        self.assertEqual(pick("AL"), {"standardDeduction": {"single": 3000, "marriedFilingJointly": 8500},
+                                      "personalExemption": {"single": 1500, "marriedFilingJointly": 3000},
+                                      "personalCredit": zero})
+        # "$153 credit" in the exemption column is a tax credit, not a deduction
+        self.assertEqual(pick("CA"), {"standardDeduction": {"single": 5540, "marriedFilingJointly": 11080},
+                                      "personalExemption": zero,
+                                      "personalCredit": {"single": 153, "marriedFilingJointly": 306}})
+        # Utah's "$966 credit" sits in the standard deduction column
+        self.assertEqual(pick("UT"), {"standardDeduction": zero, "personalExemption": zero,
+                                      "personalCredit": {"single": 966, "marriedFilingJointly": 1932}})
+        self.assertEqual(parsed["CT"]["personalExemption"], {"single": 15000, "marriedFilingJointly": 24000})
+        self.assertEqual(pick("PA"), {"standardDeduction": zero, "personalExemption": zero, "personalCredit": zero})
+        self.assertEqual(pick("TX"), {"standardDeduction": zero, "personalExemption": zero, "personalCredit": zero})
+        # The committed data carries the page's figures for every state without a hand override.
+        for s in load_fixture_rates()["items"]["stateIncomeTax"]["value"]["states"]:
+            if not s.get("override"):
+                self.assertEqual(pick(s["abbr"]), {k: s[k] for k in ("standardDeduction", "personalExemption", "personalCredit")},
+                                 s["abbr"])
+
+    def test_states_without_deduction_columns_is_a_parse_error(self):
+        page = fixture("states_2026.html").replace("Standard Deduction (Couple)", "Something Else")
+        with self.assertRaisesRegex(sources.ParseError, "standard deduction"):
+            sources.parse_states(page, 2026)
+
+    def test_states_unreadable_deduction_cell_is_a_parse_error(self):
+        page = fixture("states_2026.html").replace("<td>$2,300</td>", "<td>see note</td>", 1)
+        self.assertIn("see note", page)
+        with self.assertRaisesRegex(sources.ParseError, "see note"):
+            sources.parse_states(page, 2026)
 
     def test_states_missing_joint_brackets_is_a_parse_error(self):
         # The page has joint columns, but one state's joint cells are blank:
@@ -326,6 +383,33 @@ class Updater(unittest.TestCase):
                                     pages_for(2026, fixture("federal_2026.html"), fixture("irmaa_2026.html"), page))
         self.assertEqual(result["status"], "problems")
         self.assertTrue(any("IL: page says 4.85%" in p for p in result["problems"]))
+
+    def test_same_year_deduction_discrepancy_is_flagged(self):
+        rates = load_fixture_rates()
+        page = re.sub(r"(<td>\s*(?:<strong>)?Illinois.*?)\$2,925", r"\g<1>$3,925", fixture("states_2026.html"), count=1, flags=re.S)
+        self.assertNotEqual(page, fixture("states_2026.html"))
+        gh, result = self.run_check(rates, datetime.date(2026, 10, 28),
+                                    pages_for(2026, fixture("federal_2026.html"), fixture("irmaa_2026.html"), page))
+        self.assertEqual(result["status"], "problems")
+        self.assertTrue(any("IL: page says personalExemption" in p for p in result["problems"]), result["problems"])
+
+    def test_state_merge_takes_page_deductions_and_keeps_retirement_exclusions(self):
+        rates = load_fixture_rates()
+        prior = rates["items"]["stateIncomeTax"]["value"]
+        parsed = sources.parse_states(fixture("states_2026.html"), 2026)
+        parsed["CA"]["personalCredit"] = {"single": 160, "marriedFilingJointly": 320}   # next year's figure
+        merged, missing = updater._merge_states(prior, parsed)
+        self.assertEqual(missing, [])
+        states = {s["abbr"]: s for s in merged["states"]}
+        old = {s["abbr"]: s for s in prior["states"]}
+        for ab in ("PA", "IL", "MS"):
+            self.assertEqual(states[ab]["retirementExclusion"], old[ab]["retirementExclusion"])
+        self.assertNotIn("retirementExclusion", states["CA"])
+        self.assertEqual(states["CA"]["personalCredit"], {"single": 160, "marriedFilingJointly": 320})
+        # same key order as the hand-maintained file, so the canonical format does not churn
+        self.assertEqual(list(states["PA"]), ["abbr", "name", "rate", "taxesSocialSecurity", "standardDeduction",
+                                              "personalExemption", "personalCredit", "retirementExclusion", "brackets"])
+        self.assertEqual(list(states["CA"]), [k for k in list(old["CA"]) if k != "override"])
 
     def test_network_error_is_reported(self):
         rates = load_fixture_rates()

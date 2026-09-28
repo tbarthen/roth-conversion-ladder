@@ -604,8 +604,8 @@
       }
     },
     "stateIncomeTax": {
-      "label": "State income tax (top marginal or flat rate)",
-      "sourceName": "Tax Foundation: State Individual Income Tax Rates and Brackets, 2026 (brackets cross-checked with PolicyEngine-US and state revenue departments)",
+      "label": "State income tax (brackets, standard deduction, personal exemptions)",
+      "sourceName": "Tax Foundation: State Individual Income Tax Rates and Brackets, 2026 (brackets, standard deductions, personal exemptions; brackets cross-checked with PolicyEngine-US and state revenue departments). Retirement-income exclusions: state revenue departments, cited per state",
       "source": "https://taxfoundation.org/data/all/state/state-income-tax-rates-2026/",
       "effectiveYear": 2026,
       "indexed": false,
@@ -616,6 +616,9 @@
             "name": "Alabama",
             "rate": 5,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 3000, "marriedFilingJointly": 8500},
+            "personalExemption": {"single": 1500, "marriedFilingJointly": 3000},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.02, 500],
@@ -634,6 +637,9 @@
             "name": "Alaska",
             "rate": 0,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 0, "marriedFilingJointly": 0},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0, null]
@@ -648,6 +654,9 @@
             "name": "Arizona",
             "rate": 2.5,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 8350, "marriedFilingJointly": 16700},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.025, null]
@@ -663,6 +672,9 @@
             "rate": 3.7,
             "taxesSocialSecurity": false,
             "override": true,
+            "standardDeduction": {"single": 2470, "marriedFilingJointly": 4940},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 29, "marriedFilingJointly": 58},
             "brackets": {
               "single": [
                 [0, 5600],
@@ -685,6 +697,9 @@
             "name": "California",
             "rate": 13.3,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 5540, "marriedFilingJointly": 11080},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 153, "marriedFilingJointly": 306},
             "brackets": {
               "single": [
                 [0.01, 11079],
@@ -717,6 +732,9 @@
             "name": "Colorado",
             "rate": 4.4,
             "taxesSocialSecurity": true,
+            "standardDeduction": {"single": 16100, "marriedFilingJointly": 32200},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.044, null]
@@ -731,6 +749,9 @@
             "name": "Connecticut",
             "rate": 6.99,
             "taxesSocialSecurity": true,
+            "standardDeduction": {"single": 0, "marriedFilingJointly": 0},
+            "personalExemption": {"single": 15000, "marriedFilingJointly": 24000},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.02, 10000],
@@ -757,6 +778,9 @@
             "name": "Delaware",
             "rate": 6.6,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 3250, "marriedFilingJointly": 6500},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 110, "marriedFilingJointly": 220},
             "brackets": {
               "single": [
                 [0, 2000],
@@ -783,6 +807,9 @@
             "name": "District of Columbia",
             "rate": 10.75,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 16100, "marriedFilingJointly": 32200},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.04, 10000],
@@ -809,6 +836,9 @@
             "name": "Florida",
             "rate": 0,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 0, "marriedFilingJointly": 0},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0, null]
@@ -824,6 +854,9 @@
             "rate": 4.99,
             "taxesSocialSecurity": false,
             "override": true,
+            "standardDeduction": {"single": 12000, "marriedFilingJointly": 24000},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.0499, null]
@@ -838,6 +871,9 @@
             "name": "Hawaii",
             "rate": 11,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 4400, "marriedFilingJointly": 8800},
+            "personalExemption": {"single": 1144, "marriedFilingJointly": 2288},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.014, 9600],
@@ -874,6 +910,9 @@
             "name": "Idaho",
             "rate": 5.3,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 16100, "marriedFilingJointly": 32200},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0, 4811],
@@ -890,6 +929,16 @@
             "name": "Illinois",
             "rate": 4.95,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 0, "marriedFilingJointly": 0},
+            "personalExemption": {"single": 2925, "marriedFilingJointly": 5850},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
+            "retirementExclusion": {
+              "iraFromAge": 0,
+              "conversions": true,
+              "pensions": true,
+              "sourceName": "Illinois Department of Revenue Publication 120: Retirement Income (IRA distributions and Roth conversions are subtracted)",
+              "source": "https://tax.illinois.gov/research/publications/pubs/retirement-income.html"
+            },
             "brackets": {
               "single": [
                 [0.0495, null]
@@ -904,6 +953,9 @@
             "name": "Indiana",
             "rate": 2.95,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 0, "marriedFilingJointly": 0},
+            "personalExemption": {"single": 1000, "marriedFilingJointly": 2000},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.0295, null]
@@ -918,6 +970,9 @@
             "name": "Iowa",
             "rate": 3.8,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 16100, "marriedFilingJointly": 32200},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 40, "marriedFilingJointly": 80},
             "brackets": {
               "single": [
                 [0.038, null]
@@ -932,6 +987,9 @@
             "name": "Kansas",
             "rate": 5.58,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 3605, "marriedFilingJointly": 8240},
+            "personalExemption": {"single": 9160, "marriedFilingJointly": 18320},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.052, 23000],
@@ -948,6 +1006,9 @@
             "name": "Kentucky",
             "rate": 3.5,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 3360, "marriedFilingJointly": 3360},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.035, null]
@@ -962,6 +1023,9 @@
             "name": "Louisiana",
             "rate": 3,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 12875, "marriedFilingJointly": 25750},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.03, null]
@@ -977,6 +1041,9 @@
             "rate": 9.15,
             "taxesSocialSecurity": false,
             "override": true,
+            "standardDeduction": {"single": 8350, "marriedFilingJointly": 16700},
+            "personalExemption": {"single": 5300, "marriedFilingJointly": 10600},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.058, 27400],
@@ -997,6 +1064,9 @@
             "name": "Maryland",
             "rate": 6.5,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 3350, "marriedFilingJointly": 6700},
+            "personalExemption": {"single": 3200, "marriedFilingJointly": 6400},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.02, 1000],
@@ -1029,6 +1099,9 @@
             "name": "Massachusetts",
             "rate": 9,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 0, "marriedFilingJointly": 0},
+            "personalExemption": {"single": 4400, "marriedFilingJointly": 8800},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.05, 1107750],
@@ -1045,6 +1118,9 @@
             "name": "Michigan",
             "rate": 4.25,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 0, "marriedFilingJointly": 0},
+            "personalExemption": {"single": 5900, "marriedFilingJointly": 11800},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.0425, null]
@@ -1059,6 +1135,9 @@
             "name": "Minnesota",
             "rate": 9.85,
             "taxesSocialSecurity": true,
+            "standardDeduction": {"single": 15300, "marriedFilingJointly": 30600},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.0535, 33310],
@@ -1079,6 +1158,16 @@
             "name": "Mississippi",
             "rate": 4,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 2300, "marriedFilingJointly": 4600},
+            "personalExemption": {"single": 6000, "marriedFilingJointly": 12000},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
+            "retirementExclusion": {
+              "iraFromAge": 59.5,
+              "conversions": true,
+              "pensions": true,
+              "sourceName": "Miss. Code 27-7-15(4)(k) retirement income and (4)(ff) traditional-to-Roth conversions excluded from gross income",
+              "source": "https://law.justia.com/codes/mississippi/title-27/chapter-7/article-1/section-27-7-15/"
+            },
             "brackets": {
               "single": [
                 [0, 10000],
@@ -1095,6 +1184,9 @@
             "name": "Missouri",
             "rate": 4.7,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 16100, "marriedFilingJointly": 32200},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0, 1348],
@@ -1123,6 +1215,9 @@
             "name": "Montana",
             "rate": 5.65,
             "taxesSocialSecurity": true,
+            "standardDeduction": {"single": 16100, "marriedFilingJointly": 32200},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.047, 47500],
@@ -1139,6 +1234,9 @@
             "name": "Nebraska",
             "rate": 4.55,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 8850, "marriedFilingJointly": 17700},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 176, "marriedFilingJointly": 352},
             "brackets": {
               "single": [
                 [0.0246, 4130],
@@ -1157,6 +1255,9 @@
             "name": "Nevada",
             "rate": 0,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 0, "marriedFilingJointly": 0},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0, null]
@@ -1171,6 +1272,9 @@
             "name": "New Hampshire",
             "rate": 0,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 0, "marriedFilingJointly": 0},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0, null]
@@ -1185,6 +1289,9 @@
             "name": "New Jersey",
             "rate": 10.75,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 0, "marriedFilingJointly": 0},
+            "personalExemption": {"single": 1000, "marriedFilingJointly": 2000},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.014, 20000],
@@ -1212,6 +1319,9 @@
             "name": "New Mexico",
             "rate": 5.9,
             "taxesSocialSecurity": true,
+            "standardDeduction": {"single": 16100, "marriedFilingJointly": 32200},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.015, 5500],
@@ -1236,6 +1346,9 @@
             "name": "New York",
             "rate": 10.9,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 8000, "marriedFilingJointly": 16050},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.039, 8500],
@@ -1266,6 +1379,9 @@
             "name": "North Carolina",
             "rate": 3.99,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 12750, "marriedFilingJointly": 25500},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.0399, null]
@@ -1280,6 +1396,9 @@
             "name": "North Dakota",
             "rate": 2.5,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 16100, "marriedFilingJointly": 32200},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0, 49575],
@@ -1298,6 +1417,9 @@
             "name": "Ohio",
             "rate": 2.75,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 0, "marriedFilingJointly": 0},
+            "personalExemption": {"single": 2400, "marriedFilingJointly": 4800},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.0127448, 26050],
@@ -1314,6 +1436,9 @@
             "name": "Oklahoma",
             "rate": 4.5,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 6350, "marriedFilingJointly": 12700},
+            "personalExemption": {"single": 1000, "marriedFilingJointly": 2000},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0, 3750],
@@ -1334,6 +1459,9 @@
             "name": "Oregon",
             "rate": 9.9,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 2910, "marriedFilingJointly": 5820},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 256, "marriedFilingJointly": 512},
             "brackets": {
               "single": [
                 [0.0475, 4550],
@@ -1354,6 +1482,16 @@
             "name": "Pennsylvania",
             "rate": 3.07,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 0, "marriedFilingJointly": 0},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
+            "retirementExclusion": {
+              "iraFromAge": 59.5,
+              "conversions": true,
+              "pensions": true,
+              "sourceName": "Pennsylvania Department of Revenue: Taxability of Roth IRAs (IRA distributions from 59 1/2 and conversions are not taxable)",
+              "source": "https://revenue-pa.custhelp.com/app/answers/detail/a_id/274/~/taxability-of-roth-iras-according-to-pa-income-tax-rules"
+            },
             "brackets": {
               "single": [
                 [0.0307, null]
@@ -1368,6 +1506,9 @@
             "name": "Rhode Island",
             "rate": 5.99,
             "taxesSocialSecurity": true,
+            "standardDeduction": {"single": 11200, "marriedFilingJointly": 22400},
+            "personalExemption": {"single": 5250, "marriedFilingJointly": 10500},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.0375, 82050],
@@ -1387,6 +1528,9 @@
             "rate": 5.21,
             "taxesSocialSecurity": false,
             "override": true,
+            "standardDeduction": {"single": 8350, "marriedFilingJointly": 16700},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.0199, 30000],
@@ -1403,6 +1547,9 @@
             "name": "South Dakota",
             "rate": 0,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 0, "marriedFilingJointly": 0},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0, null]
@@ -1417,6 +1564,9 @@
             "name": "Tennessee",
             "rate": 0,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 0, "marriedFilingJointly": 0},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0, null]
@@ -1431,6 +1581,9 @@
             "name": "Texas",
             "rate": 0,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 0, "marriedFilingJointly": 0},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0, null]
@@ -1446,6 +1599,9 @@
             "rate": 4.45,
             "taxesSocialSecurity": true,
             "override": true,
+            "standardDeduction": {"single": 0, "marriedFilingJointly": 0},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 966, "marriedFilingJointly": 1932},
             "brackets": {
               "single": [
                 [0.0445, null]
@@ -1460,6 +1616,9 @@
             "name": "Vermont",
             "rate": 8.75,
             "taxesSocialSecurity": true,
+            "standardDeduction": {"single": 7650, "marriedFilingJointly": 15300},
+            "personalExemption": {"single": 5300, "marriedFilingJointly": 10600},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.0335, 49400],
@@ -1480,6 +1639,9 @@
             "name": "Virginia",
             "rate": 5.75,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 8750, "marriedFilingJointly": 17500},
+            "personalExemption": {"single": 930, "marriedFilingJointly": 1860},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.02, 3000],
@@ -1500,6 +1662,9 @@
             "name": "Washington",
             "rate": 0,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 0, "marriedFilingJointly": 0},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0, null]
@@ -1515,6 +1680,9 @@
             "rate": 4.58,
             "taxesSocialSecurity": false,
             "override": true,
+            "standardDeduction": {"single": 0, "marriedFilingJointly": 0},
+            "personalExemption": {"single": 2000, "marriedFilingJointly": 4000},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.0211, 10000],
@@ -1537,6 +1705,9 @@
             "name": "Wisconsin",
             "rate": 7.65,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 13960, "marriedFilingJointly": 25840},
+            "personalExemption": {"single": 700, "marriedFilingJointly": 1400},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0.035, 15110],
@@ -1557,6 +1728,9 @@
             "name": "Wyoming",
             "rate": 0,
             "taxesSocialSecurity": false,
+            "standardDeduction": {"single": 0, "marriedFilingJointly": 0},
+            "personalExemption": {"single": 0, "marriedFilingJointly": 0},
+            "personalCredit": {"single": 0, "marriedFilingJointly": 0},
             "brackets": {
               "single": [
                 [0, null]
