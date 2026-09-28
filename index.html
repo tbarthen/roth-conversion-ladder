@@ -752,6 +752,11 @@
             "name": "Colorado",
             "rate": 4.4,
             "taxesSocialSecurity": true,
+            "socialSecurityExemption": {
+              "fromAge": 65,
+              "sourceName": "Colorado Department of Revenue, Income Tax Topics: Social Security, Pensions and Annuities (from age 65 all federally taxable Social Security is subtracted, without the pension cap)",
+              "source": "https://tax.colorado.gov/income-tax-topics-social-security-pensions-and-annuities"
+            },
             "standardDeduction": {"single": 16100, "marriedFilingJointly": 32200},
             "personalExemption": {"single": 0, "marriedFilingJointly": 0},
             "personalCredit": {"single": 0, "marriedFilingJointly": 0},
@@ -3042,7 +3047,7 @@ function InputForm({ inputs, setInputs, onCalculate, rates, taxDataLine, validat
                 { value: '0.35', label: '35% Bracket' }
               ]
             }),
-            field('Custom Annual Conversion', 'customConversion', { min: 0, prefix: '$', help: 'Optional: compare a fixed yearly amount too.' }),
+            field('Custom Annual Conversion', 'customConversion', { min: 0, prefix: '$', help: 'Optional: compare a fixed yearly amount too (today’s dollars; it rises with inflation).' }),
             field('Tax Payment Source', 'taxPaymentSource', {
               type: 'select',
               options: [
@@ -3214,7 +3219,7 @@ function PlainSummary({ result, summary: s, inputs, rates, inflationRate }) {
   const override = inputs.stateTaxRateOverride !== '' && inputs.stateTaxRateOverride != null;
   notes.push({ text: override
     ? `State tax: a flat ${inputs.stateTaxRateOverride}% (your override).`
-    : state ? `State tax: ${state.name}’s ${rates.items.stateIncomeTax.effectiveYear} brackets, standard deduction and exemptions${state.retirementExclusion ? '; retirement income it exempts is left out' : ''}.` : 'State tax: none (no state selected).' });
+    : state ? `State tax: ${state.name}’s ${rates.items.stateIncomeTax.effectiveYear} brackets, standard deduction and exemptions${state.retirementExclusion ? '; retirement income it exempts is left out' : ''}${state.socialSecurityExemption ? `; Social Security is left out from age ${state.socialSecurityExemption.fromAge}` : ''}.` : 'State tax: none (no state selected).' });
 
   return React.createElement('div', { className: 'plain-summary' },
     runOut && React.createElement('div', { className: 'plain-alert', role: 'alert' },
@@ -3438,6 +3443,11 @@ function ProjectionTable({ data, label, showReal, inflationRate }) {
     { name: 'Shortfall', tip: 'Spending that could not be paid because every account was empty' }
   ];
 
+  /* Cumulative tax in today's dollars is the sum of each year's deflated tax
+     (like the summary), not the nominal running total deflated once. */
+  const cumulativeTax = [];
+  data.reduce((acc, row, i) => { const c = acc + deflate(row.totalTax, i); cumulativeTax.push(c); return c; }, 0);
+
   const footnoteText = 'This table shows a year-by-year projection of the ' + label.toLowerCase() +
     ' Roth conversion strategy. Account balances (Trad.\u00A0Bal., Roth\u00A0Bal., Taxable\u00A0Bal.) are end-of-year values after all growth, conversions, taxes, and spending withdrawals have been applied. In years where both an RMD and a Conversion appear, they are additive\u00A0\u2014\u00A0the total withdrawn from Traditional is RMD\u00A0+\u00A0Conversion\u00A0+\u00A0Extra\u00A0Trad.\u00A0Wdl. Fed\u00A0Taxable\u00A0Inc. is federal taxable income after deductions, including dividends and gains. IRMAA surcharges reflect a 2-year lookback on MAGI. All amounts are in ' + dollarsNote + '.';
 
@@ -3485,7 +3495,7 @@ function ProjectionTable({ data, label, showReal, inflationRate }) {
               ? React.createElement('span', { className: 'irmaa-badge' }, fmt(deflate(row.irmaaSurcharge, i)))
               : '-'),
             React.createElement('td', null, fmt(deflate(row.totalTax, i))),
-            React.createElement('td', { style: { fontWeight: 600 } }, fmt(deflate(row.cumulativeTax, i))),
+            React.createElement('td', { style: { fontWeight: 600 } }, fmt(cumulativeTax[i])),
             React.createElement('td', null, fmtPct(row.marginalRate)),
             React.createElement('td', null, effRate == null ? '-' : fmtRate(effRate)),
             React.createElement('td', null, row.unmetSpending > 1
@@ -3858,7 +3868,7 @@ function KeyAssumptions({ rates }) {
     'RMDs: start at 72 (born 1950 or earlier), 73 (1951–1959) or 75 (1960+), from the prior year-end balance using the IRS Uniform Lifetime table, or the Joint Life table when your spouse is more than 10 years younger (assumed sole beneficiary).',
     'Early withdrawals: 10% penalty on traditional withdrawals, and on Roth conversions less than 5 years old, before age 59½ (birthdays assumed mid-year); 20% on non-medical HSA withdrawals before 65. Rule-of-55 and 72(t) exceptions and income tax on early Roth earnings are not modeled. Money already in the Roth at the start is treated as seasoned contributions.',
     'Growth: the growth rate is a total return. In the taxable account the dividend yield is part of that return, taxed each year and reinvested; cost basis uses the average-cost method.',
-    'State tax: federal AGI, less taxable Social Security in states that don’t tax it and retirement income the state exempts (Pennsylvania and Mississippi: IRA/401(k) withdrawals from 59½ plus Roth conversions and pensions; Illinois: all of them at any age), minus the state’s own standard deduction and personal exemptions, taxed at your state’s brackets (or your flat override); personal exemption credits come off the tax. With a flat override and no state picked, the rate applies to federal taxable income.',
+    'State tax: federal AGI, less taxable Social Security in states that don’t tax it (Colorado taxes it only for people under 65: each person’s benefits are left out from age 65) and retirement income the state exempts (Pennsylvania and Mississippi: IRA/401(k) withdrawals from 59½ plus Roth conversions and pensions; Illinois: all of them at any age), minus the state’s own standard deduction and personal exemptions, taxed at your state’s brackets (or your flat override); personal exemption credits come off the tax. With a flat override and no state picked, the rate applies to federal taxable income.',
     'State tax limits: partial retirement-income exclusions and credits in other states (e.g. New York’s $20,000 pension and annuity exclusion, Georgia’s retirement exclusion, New Jersey’s pension exclusion) are not modeled, so those states’ tax may be overstated. Also not modeled: income phase-outs of state deductions and exemptions (e.g. Connecticut), extra state deductions for age 65+, other state income adjustments, and local income taxes.',
     'Working years: salary minus pre-tax 401(k)/HSA contributions is taxed; contributions go into the accounts. Pension income starts at retirement and rises with inflation.',
     'Survivor: after your spouse’s life expectancy you file as Single. The model assumes you outlive your spouse; if your spouse is expected to live longer, the projection runs to their life expectancy with you still alive.',

@@ -257,6 +257,14 @@ def _v_states(v, err):
             a = s.get(k)
             if not isinstance(a, dict) or not all(_num(a.get(fs)) and 0 <= a[fs] <= maximum for fs in STATE_FILING_STATUSES):
                 err(f"{ab}: {k} must give single and marriedFilingJointly amounts from 0 to {maximum:g}")
+        if "socialSecurityExemption" in s:
+            x = s["socialSecurityExemption"]
+            if s.get("taxesSocialSecurity") is not True or not isinstance(x, dict) \
+                    or not isinstance(x.get("fromAge"), int) or not 55 <= x["fromAge"] <= 75 \
+                    or not isinstance(x.get("sourceName"), str) or not x["sourceName"] \
+                    or not isinstance(x.get("source"), str) or not _URL.match(x["source"]):
+                err(f"{ab}: socialSecurityExemption needs fromAge (55-75), sourceName and an https source, "
+                    "on a state whose taxesSocialSecurity is true")
         if "retirementExclusion" in s:
             x = s["retirementExclusion"]
             if not isinstance(x, dict) or not _num(x.get("iraFromAge")) or not 0 <= x["iraFromAge"] <= 75 \

@@ -92,6 +92,10 @@ class Validation(unittest.TestCase):
         pa = lambda r: next(s for s in r["items"]["stateIncomeTax"]["value"]["states"] if s["abbr"] == "PA")
         self.assertProblem(lambda r: pa(r)["retirementExclusion"].__setitem__("source", "http://x"), "PA: retirementExclusion")
         self.assertProblem(lambda r: pa(r)["retirementExclusion"].__setitem__("iraFromAge", 90), "PA: retirementExclusion")
+        co = lambda r: next(s for s in r["items"]["stateIncomeTax"]["value"]["states"] if s["abbr"] == "CO")
+        self.assertProblem(lambda r: co(r)["socialSecurityExemption"].__setitem__("fromAge", 30), "CO: socialSecurityExemption")
+        self.assertProblem(lambda r: co(r)["socialSecurityExemption"].__setitem__("source", "http://x"), "CO: socialSecurityExemption")
+        self.assertProblem(lambda r: co(r).__setitem__("taxesSocialSecurity", False), "CO: socialSecurityExemption")
         self.assertProblem(lambda r: r.__setitem__("lastChecked", "yesterday"), "lastChecked")
         self.assertEqual(validate_rates([]), ["rates document must be a JSON object"])
 
@@ -405,6 +409,10 @@ class Updater(unittest.TestCase):
         for ab in ("PA", "IL", "MS"):
             self.assertEqual(states[ab]["retirementExclusion"], old[ab]["retirementExclusion"])
         self.assertNotIn("retirementExclusion", states["CA"])
+        self.assertEqual(states["CO"]["socialSecurityExemption"], old["CO"]["socialSecurityExemption"])
+        self.assertNotIn("socialSecurityExemption", states["MN"])
+        self.assertEqual(list(states["CO"]), ["abbr", "name", "rate", "taxesSocialSecurity", "socialSecurityExemption",
+                                              "standardDeduction", "personalExemption", "personalCredit", "brackets"])
         self.assertEqual(states["CA"]["personalCredit"], {"single": 160, "marriedFilingJointly": 320})
         # same key order as the hand-maintained file, so the canonical format does not churn
         self.assertEqual(list(states["PA"]), ["abbr", "name", "rate", "taxesSocialSecurity", "standardDeduction",

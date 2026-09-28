@@ -732,6 +732,11 @@
             "name": "Colorado",
             "rate": 4.4,
             "taxesSocialSecurity": true,
+            "socialSecurityExemption": {
+              "fromAge": 65,
+              "sourceName": "Colorado Department of Revenue, Income Tax Topics: Social Security, Pensions and Annuities (from age 65 all federally taxable Social Security is subtracted, without the pension cap)",
+              "source": "https://tax.colorado.gov/income-tax-topics-social-security-pensions-and-annuities"
+            },
             "standardDeduction": {"single": 16100, "marriedFilingJointly": 32200},
             "personalExemption": {"single": 0, "marriedFilingJointly": 0},
             "personalCredit": {"single": 0, "marriedFilingJointly": 0},

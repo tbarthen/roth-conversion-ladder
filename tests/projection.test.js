@@ -219,6 +219,35 @@ test('state: Pennsylvania, Illinois and Mississippi do not tax a retiree\'s Roth
   near(assert, oh[0].stateTax, 1199.62704, 0.01);
 });
 
+test('state: Colorado leaves each person\'s Social Security out of its base from age 65', () => {
+  /* 66 and 63, both collecting (30,000 + 15,000), pension 40,000, no other income
+     (taxable account at cost, no growth). Taxable SS: provisional 40,000 + 22,500
+     = 62,500 -> 6,000 + 85% x 18,500 = 21,725; AGI 61,725. Only the 66-year-old's
+     2/3 share is exempt: 61,725 - 14,483.33 - 32,200 = 15,041.67 x 4.4% = 661.83.
+     (Taxing all of it would give 1,299.10.) From the year the spouse turns 65
+     the whole taxable SS is out of the Colorado base. */
+  const inp = baseInputs({ currentAge: 66, retirementAge: 65, filingStatus: 'marriedFilingJointly', spouseAge: 63, spouseLifeExpectancy: 90,
+    stateAbbr: 'CO', ssAnnualBenefit: 30000, ssStartAge: 65, spouseSsBenefit: 15000, spouseSsStartAge: 62, pensionIncome: 40000,
+    taxableBalance: 400000, taxableCostBasis: 400000, taxableGrowth: 0, dividendYield: 0, annualSpending: 60000,
+    inflationRate: 0, bracketInflation: 0 });
+  const rows = run(inp);
+  near(assert, rows[0].ssIncome, 45000, 0.01);
+  near(assert, rows[0].taxableSS, 21725, 0.01);
+  near(assert, rows[0].taxDetail.stateIncome, 61725 - 21725 * 2 / 3, 0.01);
+  near(assert, rows[0].stateTax, 661.83, 0.01);
+  near(assert, rows[1].stateTax, 661.83, 0.01); /* spouse 64 */
+  near(assert, rows[2].taxDetail.stateIncome, rows[2].agi - rows[2].taxableSS, 0.01); /* spouse 65 */
+  /* single, 70: nothing of the SS is taxed by Colorado; at 64 all of it is */
+  const single70 = run(baseInputs({ currentAge: 70, retirementAge: 65, stateAbbr: 'CO', ssStartAge: 67, pensionIncome: 40000 }))[0];
+  near(assert, single70.taxDetail.stateIncome, single70.agi - single70.taxableSS, 0.01);
+  const single64 = run(baseInputs({ currentAge: 64, retirementAge: 60, stateAbbr: 'CO', ssStartAge: 62, pensionIncome: 40000 }))[0];
+  assert.ok(single64.taxableSS > 0);
+  near(assert, single64.taxDetail.stateIncome, single64.agi, 0.01);
+  /* Minnesota (no age rule) still taxes it */
+  const mn = run(baseInputs({ currentAge: 70, retirementAge: 65, stateAbbr: 'MN', ssStartAge: 67, pensionIncome: 40000 }))[0];
+  near(assert, mn.taxDetail.stateIncome, mn.agi, 0.01);
+});
+
 test('Social Security: a benefit already being collected is not adjusted for the claiming age again', () => {
   /* 72, started at 70: the 30,000 entered is what arrives now, not the
      full-retirement-age amount (x 1.24 would count the delay credit twice). */

@@ -221,6 +221,25 @@ test('computeYearTax: states that exempt IRA withdrawals, Roth conversions and p
   near(assert, tax('CA', { age: 65, iraDistributions: 60000, rothConversion: 20000 }).stateTax, 1649.49);
 });
 
+test('computeYearTax: a state that stops taxing Social Security at an age leaves that share out', () => {
+  /* Colorado, single, 70: IRA 50,000 + SS 30,000 (25,500 taxable) = AGI 75,500;
+     less the 16,100 CO deduction. All of the SS exempt (share 1): 4.4% x 33,900 = 1,491.60;
+     none exempt: 4.4% x 59,400 = 2,613.60; half (one spouse 65+): 4.4% x 46,650 = 2,052.60 */
+  const co = stateOf('CO');
+  const a = E.stateAllowances(td, co, S, Y, 0);
+  const tax = (share) => E.computeYearTax(td, {
+    filingStatus: S, year: Y, age: 70, iraDistributions: 50000, ssBenefits: 30000,
+    stateBrackets: co.brackets.single, stateTaxesSocialSecurity: true, stateSsExemptShare: share,
+    stateDeduction: a.deduction, stateCredit: a.credit
+  });
+  near(assert, tax(1).stateTax, 1491.6);
+  near(assert, tax(0).stateTax, 2613.6);
+  near(assert, tax(undefined).stateTax, 2613.6);
+  near(assert, tax(0.5).stateTax, 2052.6);
+  near(assert, tax(7).stateTax, 1491.6); /* clamped */
+  assert.equal(co.socialSecurityExemption.fromAge, 65);
+});
+
 test('IRMAA: surcharge = Part B above standard + Part D, per person', () => {
   const irmaa = (magi, fs, year = Y, people = 1, bi = 0, pi = 0) => E.irmaaSurcharge(td, magi, fs, year, bi, pi, people);
   assert.equal(irmaa(109000, S).annual, 0);

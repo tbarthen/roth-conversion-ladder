@@ -222,6 +222,14 @@ const ITEM_VALIDATORS = {
           err(`${s.abbr}: ${k} must give single and marriedFilingJointly amounts from 0 to ${max}`);
         }
       }
+      if (s.socialSecurityExemption !== undefined) {
+        const x = s.socialSecurityExemption;
+        if (s.taxesSocialSecurity !== true || !isObj(x) || !isInt(x.fromAge) || x.fromAge < 55 || x.fromAge > 75
+            || typeof x.sourceName !== 'string' || !x.sourceName
+            || typeof x.source !== 'string' || !/^https:\/\/[^\s]+$/.test(x.source)) {
+          err(`${s.abbr}: socialSecurityExemption needs fromAge (55-75), sourceName and an https source, on a state whose taxesSocialSecurity is true`);
+        }
+      }
       if (s.retirementExclusion !== undefined) {
         const x = s.retirementExclusion;
         if (!isObj(x) || !isNum(x.iraFromAge) || x.iraFromAge < 0 || x.iraFromAge > 75
@@ -567,8 +575,11 @@ function stateExcludedRetirementIncome(exclusion, p) {
  *      rothConversion (the part of iraDistributions converted to Roth),
  *      hsaTaxable, ssBenefits, dividends, capitalGains, stateRate (percent,
  *      flat) or stateBrackets (progressive, already indexed),
- *      stateTaxesSocialSecurity, stateDeduction and stateCredit (from
- *      stateAllowances), stateRetirementExclusion, bracketInflation (decimal) }
+ *      stateTaxesSocialSecurity, stateSsExemptShare (0-1: the part of the
+ *      taxable Social Security a state that taxes it still leaves out, e.g.
+ *      the benefits of each person past the state's age limit),
+ *      stateDeduction and stateCredit (from stateAllowances),
+ *      stateRetirementExclusion, bracketInflation (decimal) }
  * State tax: state income = federal AGI, less taxable Social Security in
  * states that exempt it and retirement income the state excludes, minus
  * the state's standard deduction and personal exemptions; personal credits
@@ -595,7 +606,7 @@ function computeYearTax(td, p) {
   const federalTax = ordinaryIncomeTax(ordinaryTaxableIncome, brackets);
   const cgTax = capitalGainsTax(ordinaryTaxableIncome, preferentialIncome, cgBrackets);
   const niit = netInvestmentIncomeTax(td, agi, preferentialGross, fs);
-  const exemptSS = p.stateTaxesSocialSecurity ? 0 : taxableSS;
+  const exemptSS = p.stateTaxesSocialSecurity ? taxableSS * Math.min(1, Math.max(0, p.stateSsExemptShare || 0)) : taxableSS;
   const hasStateFigures = p.stateDeduction != null;
   const stateExcludedRetirement = hasStateFigures ? Math.min(agi - exemptSS, stateExcludedRetirementIncome(p.stateRetirementExclusion, p)) : 0;
   const stateIncome = hasStateFigures ? Math.max(0, agi - exemptSS - stateExcludedRetirement) : Math.max(0, taxableIncome - exemptSS);
@@ -960,16 +971,22 @@ function runProjection(rawInputs, scenario, opts, td) {
     const wages = Math.max(0, salary - pretax);
     const pension = working ? 0 : indexAmount(inp.pensionIncome, startYear, year, infl);
     const growth = Math.pow(1 + infl, k);
-    const ownSs = age >= inp.ssStartAge ? inp.ssAnnualBenefit * ownSsFactor * growth : 0;
-    let ssIncome = ownSs;
+    let ownSs = age >= inp.ssStartAge ? inp.ssAnnualBenefit * ownSsFactor * growth : 0;
+    let spouseSs = 0;
     if (startedMFJ) {
       const spouseBenefit = inp.spouseSsBenefit * spouseSsFactor * growth;
       if (spouseAlive) {
-        if (sAge >= inp.spouseSsStartAge) ssIncome += spouseBenefit;
+        if (sAge >= inp.spouseSsStartAge) spouseSs = spouseBenefit;
       } else if (age >= inp.ssStartAge && inp.spouseLifeExpectancy >= inp.spouseSsStartAge) {
-        ssIncome = Math.max(ownSs, spouseBenefit); /* survivor keeps the larger benefit */
+        ownSs = Math.max(ownSs, spouseBenefit); /* survivor keeps the larger benefit */
       }
     }
+    const ssIncome = ownSs + spouseSs;
+    /* A state that taxes Social Security but leaves out each person's benefits
+       from an age (Colorado, 65): the share of this year's benefits that is out. */
+    const ssExemptAge = inp.state && inp.state.socialSecurityExemption ? inp.state.socialSecurityExemption.fromAge : null;
+    const ssExemptShare = ssExemptAge === null || !(ssIncome > 0) ? 0
+      : ((age >= ssExemptAge ? ownSs : 0) + (spouseAlive && sAge >= ssExemptAge ? spouseSs : 0)) / ssIncome;
 
     /* 6. IRMAA for this year (MAGI from two years ago) */
     const medicarePeople = (age >= 65 ? 1 : 0) + (isMFJ && sAge >= 65 ? 1 : 0);
@@ -985,7 +1002,7 @@ function runProjection(rawInputs, scenario, opts, td) {
       filingStatus, year, age, spouseAge: spouseForTax,
       wages, pension, iraDistributions: rmd + conv + w.fromTrad, rothConversion: conv, hsaTaxable: w.fromHSA,
       ssBenefits: ssIncome, dividends, capitalGains: w.gains,
-      stateRate: inp.stateTaxRate, stateBrackets, stateTaxesSocialSecurity: inp.stateTaxesSocialSecurity,
+      stateRate: inp.stateTaxRate, stateBrackets, stateTaxesSocialSecurity: inp.stateTaxesSocialSecurity, stateSsExemptShare: ssExemptShare,
       stateDeduction: stateAllow ? stateAllow.deduction : null, stateCredit: stateAllow ? stateAllow.credit : 0,
       stateRetirementExclusion: inp.state ? inp.state.retirementExclusion : null,
       bracketInflation: bInfl
