@@ -2652,7 +2652,8 @@ const mergeInputsWithDefaults = (rawImported) => {
   for (const path of INPUT_FIELD_PATHS) {
     const value = getFieldByPath(imported, path);
     if (value === undefined) {
-      if (!SURVIVOR_FIELD_PATHS.has(path) || imported.filingStatus === 'widowed') missingPaths.push(path);
+      const spouseOnly = path === 'spouseMedicareAge' && imported.filingStatus !== 'marriedFilingJointly';
+      if (!spouseOnly && (!SURVIVOR_FIELD_PATHS.has(path) || imported.filingStatus === 'widowed')) missingPaths.push(path);
     } else {
       setFieldByPath(merged, path, path === 'goal' ? normalizeGoal(value) : value);
     }
@@ -3303,7 +3304,7 @@ function InputForm({ inputs, setInputs, onCalculate, rates, taxDataLine, validat
           showAdvancedGrowth && field('Taxable Growth Rate', 'taxableGrowth', { suffix: '%', min: 0, max: 20 }),
           field('Dividend Yield', 'dividendYield', { suffix: '%', min: 0, max: 10, step: 0.1 }),
           field('Tax-Exempt Interest (per year)', 'taxExemptInterest', { prefix: true, min: 0, placeholder: '0',
-            help: 'Interest from municipal bonds or muni bond funds, shown in box 8 of Form 1099-INT or box 12 of Form 1099-DIV. It is not taxed federally, but it still counts toward how much of your Social Security is taxed and toward Medicare surcharges (IRMAA). Treated as part of your taxable account’s return; bonds from your own state are assumed (most states tax other states’ bond interest). Leave at $0 if you have none.' }),
+            help: 'Interest from municipal bonds or muni bond funds, shown in box 8 of Form 1099-INT or box 12 of Form 1099-DIV. It is not taxed federally, but it still counts toward how much of your Social Security is taxed and toward Medicare surcharges (IRMAA). Treated as part of your taxable account’s return: the amount is the yield on today’s balance, so it rises and falls with that account and stops if the account is spent. Bonds from your own state are assumed (most states tax other states’ bond interest). Leave at $0 if you have none.' }),
           field('Inflation Rate', 'inflationRate', { suffix: '%', min: 0, max: 10 }),
           field('Bracket Inflation Adj.', 'bracketInflation', { suffix: '%', min: 0, max: 10,
             help: 'How fast tax brackets and limits rise each year.' })
@@ -3743,6 +3744,7 @@ function YearMath({ result, rates }) {
         r.realizedCapGains > 0 && row('Capital gains from selling taxable investments', r.realizedCapGains),
         r.ssIncome > 0 && row(`Social Security ${fmt(r.ssIncome)}${r.ssSource === 'survivor' ? ' (survivor benefit' + (r.ssIncome > r.ssSurvivor + 0.5 ? ' + spouse' : '') + ')' : ''}${ssLike.length ? ` (incl. ${ssLike.map(x => `${x.name} ${fmt(x.amount)}`).join(', ')}, taxed the same way)` : ''} — taxable part`, t.taxableSS),
         row('Adjusted gross income (AGI)', t.agi, { total: true }),
+        t.taxExemptInterest > 0 && row('Tax-exempt interest (not in AGI; counted for the Social Security taxable part above and for Medicare IRMAA)', t.taxExemptInterest, { sub: true }),
         section('2. Deductions'),
         row(`Standard deduction${r.age >= 65 ? ' (incl. extra for age 65+)' : ''}`, -t.stdDeduction),
         t.seniorBonus > 0 && row('Senior deduction (2025–2028)', -t.seniorBonus),
@@ -4336,7 +4338,7 @@ function KeyAssumptions({ rates }) {
     'Medicare IRMAA: surcharge = Part B premium above the standard premium + Part D adjustment, per person on Medicare (from 65, or from the Medicare start age entered for someone on SSDI), based on MAGI (AGI plus tax-exempt interest) from two years earlier, judged on the thresholds for the filing status of that year’s return (a surviving spouse is judged on the joint return for two years). For the first two projection years (no history yet) this year’s income without the conversion is used. Thresholds grow with bracket inflation, premiums with general inflation.',
     'RMDs: start at 72 (born 1950 or earlier), 73 (1951–1959) or 75 (1960+), from the prior year-end balance using the IRS Uniform Lifetime table, or the Joint Life table when your spouse is more than 10 years younger (assumed sole beneficiary).',
     'Early withdrawals: 10% penalty on traditional withdrawals, and on Roth conversions less than 5 years old, before age 59½ (birthdays assumed mid-year); 20% on non-medical HSA withdrawals before 65. Rule-of-55 and 72(t) exceptions and income tax on early Roth earnings are not modeled. Money already in the Roth at the start is treated as seasoned contributions.',
-    'Growth: the growth rate is a total return. In the taxable account the dividend yield is part of that return, taxed each year and reinvested; cost basis uses the average-cost method.',
+    'Growth: the growth rate is a total return. In the taxable account the dividend yield is part of that return, taxed each year and reinvested; cost basis uses the average-cost method. Tax-exempt interest is also part of that return: the amount entered is the yield on today’s taxable balance, applied to each year’s opening balance, so it stops when the account is spent. It is never taxed (federal or state), and is left out of NIIT and the senior deduction, but it counts toward the Social Security taxable part and IRMAA.',
     'State tax: federal AGI, less taxable Social Security in states that don’t tax it (Colorado taxes it only for people under 65: each person’s benefits are left out from age 65) and retirement income the state exempts (Pennsylvania and Mississippi: IRA/401(k) withdrawals from 59½ plus Roth conversions and pensions; Illinois: all of them at any age), minus the state’s own standard deduction and personal exemptions, taxed at your state’s brackets (or your flat override); personal exemption credits come off the tax. With a flat override and no state picked, the rate applies to federal taxable income.',
     'State tax limits: partial retirement-income exclusions and credits in other states (e.g. New York’s $20,000 pension and annuity exclusion, Georgia’s retirement exclusion, New Jersey’s pension exclusion) are not modeled, so those states’ tax may be overstated. Also not modeled: income phase-outs of state deductions and exemptions (e.g. Connecticut), extra state deductions for age 65+, other state income adjustments, and local income taxes.',
     'Working years: salary minus pre-tax 401(k)/HSA contributions is taxed; contributions go into the accounts. Salary is assumed to cover spending and its own tax, so no cash flows other than a conversion’s extra tax are modeled while working; other income paid in those years is taxed but not saved.',

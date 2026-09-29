@@ -646,3 +646,48 @@ test('tax-exempt interest flows into the projection: IRMAA MAGI rises, AGI does 
   near(assert, a[0].irmaaMagi, a[0].agi, 0.01);
   assert.equal(E.normalizeInputs(baseInputs({}), td).taxExemptInterest, 0);
 });
+
+test('tax-exempt interest follows the taxable balance: the amount entered in year one, none once the account is spent, only in proportion after a small refill', () => {
+  /* Single retiree living on the traditional account; the 60,000 taxable account
+     is gone in two years, then RMD surpluses refill it a few thousand at a time. */
+  const inp = baseInputs({ currentAge: 70, retirementAge: 65, ssStartAge: 70, taxableBalance: 60000, taxableCostBasis: 60000, annualSpending: 90000,
+    taxExemptInterest: 20000, inflationRate: 0, bracketInflation: 0, preRetirementGrowth: 4, taxableGrowth: 4, rothGrowth: 4, rothBalance: 0, traditionalBalance: 1500000 });
+  const rows = run(inp);
+  near(assert, rows[0].taxExemptInterest, 20000, 0.01, 'first year: the amount entered');
+  near(assert, rows[0].taxDetail.taxExemptInterest, 20000, 0.01);
+  const empty = rows.find(r => r.age === 72);
+  assert.equal(empty.taxBal, 0);
+  assert.equal(empty.taxExemptInterest, 0, 'nothing once the account is spent');
+  const before = rows.find(r => r.age === 76), refill = rows.find(r => r.age === 77);
+  assert.ok(before.taxBal > 0 && before.taxBal < 20000, `a small refilled balance (${before.taxBal})`);
+  near(assert, refill.taxExemptInterest, before.taxBal * (20000 / 60000), 0.01, 'the same yield on the opening balance');
+  assert.ok(refill.taxExemptInterest < 5000);
+  /* ...so a few thousand dollars of bonds no longer books 20,000 of interest and an IRMAA tier */
+  for (const r of rows.filter(x => x.age >= 77 && x.age <= 80)) assert.equal(r.irmaaSurcharge, 0, `no IRMAA at ${r.age}`);
+  /* No taxable account: nothing counted, and the form says so */
+  const none = run(baseInputs({ taxableBalance: 0, taxableCostBasis: 0, taxExemptInterest: 5000 }));
+  assert.equal(none[0].taxExemptInterest, 0);
+  near(assert, none[0].taxDetail.magi, none[0].agi, 0.01);
+  assert.ok(E.validateInputs(baseInputs({ taxableBalance: 0, taxExemptInterest: 5000 }), td).warnings.some(w => w.field === 'taxExemptInterest'));
+  assert.ok(!E.validateInputs(baseInputs({ taxableBalance: 100000, taxExemptInterest: 5000 }), td).warnings.some(w => w.field === 'taxExemptInterest'));
+});
+
+test('HSA contributions stop at the Medicare start age (none are allowed once on Medicare)', () => {
+  const inp = baseInputs({ currentAge: 60, retirementAge: 64, grossIncome: 100000, hsaBalance: 10000, medicareAge: 62,
+    annualContributions: { traditional: 0, roth: 0, taxable: 0, hsa: 4000 }, preRetirementGrowth: 0, rothGrowth: 0, taxableGrowth: 0, inflationRate: 0, bracketInflation: 0 });
+  const rows = run(inp);
+  near(assert, rows[0].hsaBal, 14000, 0.01);
+  near(assert, rows[1].hsaBal, 18000, 0.01);
+  near(assert, rows[2].hsaBal, 18000, 0.01, 'age 62: on Medicare, no contribution');
+  near(assert, rows[3].hsaBal, 18000, 0.01);
+  near(assert, rows[1].wages, 96000, 0.01, 'the contribution is pre-tax while it lasts');
+  near(assert, rows[2].wages, 100000, 0.01);
+  const warn = (over) => E.validateInputs(baseInputs({ retirementAge: 64, annualContributions: { traditional: 0, roth: 0, taxable: 0, hsa: 4000 }, ...over }), td).warnings.some(w => w.field === 'annualContributions.hsa');
+  assert.ok(warn({ medicareAge: 62 }));
+  assert.ok(warn({ retirementAge: 67 }), 'the default Medicare age of 65 also stops them for someone working past 65');
+  assert.ok(!warn({ medicareAge: 65 }));
+  assert.ok(!warn({ medicareAge: 62, annualContributions: { traditional: 0, roth: 0, taxable: 0, hsa: 0 } }));
+  /* Default Medicare age: someone retiring at 64 keeps contributing every working year, as before */
+  const def = run({ ...inp, medicareAge: '' });
+  near(assert, def[3].hsaBal, 26000, 0.01);
+});

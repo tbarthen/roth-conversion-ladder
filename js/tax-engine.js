@@ -1039,8 +1039,9 @@ function normalizeInputs(raw, td) {
     rothGrowth: pct(r.rothGrowth, orDefault(toNum(r.preRetirementGrowth), 6), -10, 30),
     taxableGrowth: pct(r.taxableGrowth, orDefault(toNum(r.preRetirementGrowth), 6), -10, 30),
     dividendYield: pct(r.dividendYield, 0, 0, 10),
-    /* Yearly tax-exempt (municipal bond) interest in today's dollars, earned inside
-       the taxable account (part of its return, so no extra cash flow). */
+    /* Yearly tax-exempt (municipal bond) interest earned inside the taxable
+       account today: part of its return (no extra cash flow), so the projection
+       treats it as a yield on the taxable balance, like the dividends. */
     taxExemptInterest: clamp(orDefault(toNum(r.taxExemptInterest), 0), 0, 1e7),
     inflationRate,
     bracketInflation: pct(r.bracketInflation, 2.5, 0, 15),
@@ -1089,6 +1090,11 @@ function validateInputs(raw, td) {
     const v = contrib[k];
     if (!blank(v) && (!isFinite(Number(v)) || Number(v) < 0)) E(`annualContributions.${k}`, 'Contributions must be zero or more.');
   }
+  /* No HSA contributions once on Medicare (IRS Pub. 969); the projection stops them at the Medicare start age. */
+  const medicareStart = blank(r.medicareAge) ? 65 : Number(r.medicareAge);
+  if (Number(contrib.hsa) > 0 && isFinite(ret) && isFinite(medicareStart) && medicareStart < ret) {
+    W('annualContributions.hsa', `HSA contributions stop at age ${medicareStart}, when your Medicare starts: the law does not allow them once you are on Medicare, so the plan leaves them out from then on.`);
+  }
   const ssStart = num('ssStartAge', 'Social Security start age', { min: 62, max: 70, integer: true });
   const widowed = r.filingStatus === 'widowed' || r.widowed === true;
   let survivorStart = NaN;
@@ -1131,6 +1137,9 @@ function validateInputs(raw, td) {
   num('taxableGrowth', 'taxable growth rate', { min: -10, max: 30 });
   num('dividendYield', 'dividend yield', { min: 0, max: 10 });
   num('taxExemptInterest', 'tax-exempt interest', { min: 0, max: 1e7 });
+  if (Number(r.taxExemptInterest) > 0 && !(Number(r.taxableBalance) > 0)) {
+    W('taxExemptInterest', 'Tax-exempt interest is treated as part of your taxable account’s return, and that account is empty, so it is left out. Include the bonds in your taxable account balance.');
+  }
   num('inflationRate', 'inflation rate', { min: 0, max: 15 });
   num('bracketInflation', 'bracket inflation rate', { min: 0, max: 15 });
   num('heirTaxRate', "heirs' tax rate", { min: 0, max: 60 });
@@ -1230,6 +1239,11 @@ function runProjection(rawInputs, scenario, opts, td) {
     ? Math.max(inp.lifeExpectancy, inp.spouseLifeExpectancy + (inp.currentAge - inp.spouseAge))
     : inp.lifeExpectancy;
   const earlyPenaltyApplies = (age) => age + 0.5 < pen.earlyDistributionAge; /* birthday assumed mid-year */
+  /* Tax-exempt interest as a share of today's taxable balance: it is part of
+     that account's return, so each year it follows the opening balance the way
+     the dividends do (nothing once the account is spent, a little after a
+     small refill). With no taxable balance there is nothing to earn it. */
+  const muniYield = inp.taxableBalance > 0 ? Math.min(1, inp.taxExemptInterest / inp.taxableBalance) : 0;
 
   let filingStatus = inp.filingStatus;
   let tradBal = inp.traditionalBalance;
@@ -1283,23 +1297,27 @@ function runProjection(rawInputs, scenario, opts, td) {
        taxable account the dividend part is paid out (taxed this year) and
        reinvested, so it also adds to cost basis. */
     const dividends = taxBal * Math.min(inp.dividendYield, Math.max(0, inp.taxableGrowth)) / 100;
+    const taxExemptInterest = taxBal * muniYield;
     tradBal *= 1 + inp.preRetirementGrowth / 100;
     rothBal *= 1 + inp.rothGrowth / 100;
     taxBal *= 1 + inp.taxableGrowth / 100;
     taxBasis += dividends;
     hsaBal *= 1 + inp.preRetirementGrowth / 100;
 
-    /* 3. Contributions while working (traditional + HSA are pre-tax) */
+    /* 3. Contributions while working (traditional + HSA are pre-tax). HSA
+       contributions are not allowed once on Medicare, so they stop at the
+       Medicare start age. */
     let pretax = 0;
     if (working) {
       const c = inp.annualContributions;
+      const hsaContribution = age >= inp.medicareAge ? 0 : c.hsa;
       tradBal += c.traditional;
       rothBal += c.roth;
       rothContributions += c.roth;
       taxBal += c.taxable;
       taxBasis += c.taxable;
-      hsaBal += c.hsa;
-      pretax = c.traditional + c.hsa;
+      hsaBal += hsaContribution;
+      pretax = c.traditional + hsaContribution;
     }
 
     /* 5. Income */
@@ -1336,7 +1354,7 @@ function runProjection(rawInputs, scenario, opts, td) {
     const taxParams = (conv, w) => ({
       filingStatus, year, age, spouseAge: spouseForTax,
       wages, pension, iraDistributions: rmd + conv + w.fromTrad, rothConversion: conv, hsaTaxable: w.fromHSA,
-      ssBenefits: ssIncome, dividends, capitalGains: w.gains, taxExemptInterest: taxBal > 0 ? indexAmount(inp.taxExemptInterest, startYear, year, infl) : 0,
+      ssBenefits: ssIncome, dividends, capitalGains: w.gains, taxExemptInterest,
       stateRate: inp.stateTaxRate, stateBrackets, stateTaxesSocialSecurity: inp.stateTaxesSocialSecurity, stateSsExemptShare: ssExemptShare,
       stateDeduction: stateAllow ? stateAllow.deduction : null, stateCredit: stateAllow ? stateAllow.credit : 0,
       stateRetirementExclusion: inp.state ? inp.state.retirementExclusion : null,
@@ -1545,7 +1563,7 @@ function runProjection(rawInputs, scenario, opts, td) {
       conversionAmount: conv, taxFromConversion,
       taxableWithdrawal: w.fromTaxable, rothWithdrawal: w.fromRoth,
       tradWithdrawal: w.fromTrad, hsaWithdrawal: w.fromHSA,
-      dividendIncome: dividends, realizedCapGains: w.gains,
+      dividendIncome: dividends, taxExemptInterest, realizedCapGains: w.gains,
       agi: tax.agi, stdDeduction: tax.stdDeduction, seniorBonus: tax.seniorBonus,
       taxableIncome: tax.taxableIncome, ordinaryTaxableIncome: tax.ordinaryTaxableIncome,
       federalTax: tax.federalTax, capGainsTax: tax.cgTax, niit: tax.niit, stateTax: tax.stateTax,
