@@ -2420,14 +2420,15 @@ const INPUT_FIELD_PATHS = [
 ];
 
 /* What the optimizer ranks plans by. Profiles saved before this question
-   existed have no goal and load as 'lifetimeTax' (the default). */
+   existed have no goal, and ones from its first version say 'lifetimeTax';
+   both load as 'spendable' (the default). */
 const GOAL_OPTIONS = [
-  { value: 'lifetimeTax', label: 'Pay the least tax over my lifetime',
-    desc: 'We suggest the plan with the lowest total tax \u2014 federal, state, Medicare surcharges and penalties, in today\u2019s dollars \u2014 among plans that never leave you short of money.' },
+  { value: 'spendable', label: 'Keep the most for myself',
+    desc: 'We suggest the plan that leaves you the most to spend at the end of the plan: everything in your accounts, minus the tax you (or your surviving spouse) would owe to withdraw it, in today\u2019s dollars \u2014 among plans that never leave you short of money.' },
   { value: 'heirs', label: 'Leave the most to my heirs',
     desc: 'We suggest the plan that leaves the most after all taxes at the end of the projection, counting traditional balances after the tax your heirs would owe on them.' }
 ];
-const normalizeGoal = (g) => g === 'heirs' ? 'heirs' : 'lifetimeTax';
+const normalizeGoal = (g) => g === 'heirs' ? 'heirs' : 'spendable';
 
 /* Survivor-benefit fields only matter to widow(er)s (the survivor start age
    also to married couples), so an older profile without them is not
@@ -2516,7 +2517,7 @@ const makeDefaultInputs = () => ({
   dividendYield: 1.3,
   inflationRate: 2.5,
   bracketInflation: 2.5,
-  goal: 'lifetimeTax',
+  goal: 'spendable',
   heirTaxRate: 24,
   targetBracket: 'auto',
   customConversion: 0,
@@ -3293,8 +3294,8 @@ function PlainSummary({ result, summary: s, inputs, rates, inflationRate, onAppl
   const noticeable = Math.abs(s.gainToday) >= 500;
   /* What the plan was chosen on, in plain English */
   const heirsGoal = s.goal === 'heirs';
-  const goalPhrase = heirsGoal ? 'leaves the most to your heirs after all taxes' : 'pays the least tax over your lifetime';
-  const goalNoun = heirsGoal ? 'what you leave to your heirs after taxes' : 'your lifetime taxes';
+  const goalPhrase = heirsGoal ? 'leaves the most to your heirs after all taxes' : 'leaves you the most to spend';
+  const goalNoun = heirsGoal ? 'what you leave to your heirs after taxes' : 'what you have to spend';
   const passedOver = s.passedOver || [];
   const topPassedOver = passedOver.length ? `${Math.round(Math.max(...passedOver.map(c => c.rate)) * 100)}%` : null;
   const passedOverOut = passedOver.length ? passedOver.map(c => c.runsOutAge).filter(Boolean).sort((a, b) => a - b)[0] : null;
@@ -3309,13 +3310,13 @@ function PlainSummary({ result, summary: s, inputs, rates, inflationRate, onAppl
   } else if (s.shortOfMoney) {
     tone = 'neutral';
     headline = 'Converting doesn’t look worthwhile for you.';
-    subline = 'Every conversion plan we tried would leave you short of money sooner than not converting. A plan that pays less tax only because your savings run out is not a saving, so we don’t suggest one.';
+    subline = 'Every conversion plan we tried would leave you short of money sooner than not converting. A plan that leaves you short of money is never a good plan, whatever it ends with, so we don’t suggest one.';
   } else if (years === 0) {
     tone = 'neutral';
     headline = 'Converting doesn’t look worthwhile for you.';
     subline = heirsGoal
       ? 'With your numbers, moving money to a Roth IRA would cost more in tax now than it saves later, so it would leave less to your heirs.'
-      : 'With your numbers, no conversion plan pays less tax over your lifetime than simply not converting.';
+      : 'With your numbers, no conversion plan leaves you more to spend than simply not converting.';
   } else {
     tone = 'neutral';
     headline = noticeable && s.gainToday < 0
@@ -3350,19 +3351,19 @@ function PlainSummary({ result, summary: s, inputs, rates, inflationRate, onAppl
       tone: ''
     });
   } else {
-    const leftDiff = s.totalEstateB - s.totalEstateA;
-    /* When the money runs out either way the run-out warning says it all */
-    if (s.totalEstateA >= 1000 || s.totalEstateB >= 1000) tiles.push({
-      label: 'Tax over your lifetime',
-      value: signed(-s.taxSavedToday),
-      sub: (s.taxSavedToday >= 0 ? 'less' : 'more') + ' tax paid over your lifetime (federal, state, Medicare surcharges and penalties) than without converting. This is what the plan was chosen on.',
-      tone: toneOf(s.taxSavedToday)
+    tiles.push({
+      label: 'Yours to spend',
+      value: signed(s.spendableGainToday),
+      sub: s.spendableA < 1000 && s.spendableB < 1000
+        ? `Your savings run out either way, so there is nothing left to compare at age ${s.finalAge}. This is the figure plans are chosen on; a plan that runs out later still comes first.`
+        : (s.spendableGainToday >= 0 ? 'more' : 'less') + ` yours to spend at age ${s.finalAge} than without converting: everything in your accounts, minus the tax you’d owe to withdraw it (${fmt(s.spendableB)} vs ${fmt(s.spendableA)}). This is what the plan was chosen on.`,
+      tone: toneOf(s.spendableGainToday)
     });
     tiles.push({
-      label: `Left at age ${s.finalAge}`,
-      value: signed(leftDiff),
-      sub: (leftDiff >= 0 ? 'more' : 'less') + ` in your accounts at the end than without converting (${fmt(s.totalEstateB)} vs ${fmt(s.totalEstateA)}, before any tax your heirs would owe). Tax paid early stops growing for you, so this can fall while lifetime tax falls.`,
-      tone: toneOf(leftDiff)
+      label: 'Tax over your lifetime',
+      value: signed(-s.taxSavedToday),
+      sub: (s.taxSavedToday >= 0 ? 'less' : 'more') + ' tax paid over your lifetime (federal, state, Medicare surcharges and penalties) than without converting.',
+      tone: ''
     });
   }
   if (years > 0) {
@@ -3387,11 +3388,11 @@ function PlainSummary({ result, summary: s, inputs, rates, inflationRate, onAppl
     notes.push({ tone: 'warn', text: `Without converting, your savings may run out at about age ${s.runsOutAgeA}; with this plan they last.` });
   }
   if (heirsGoal) {
-    notes.push({ text: `What we optimized: the plan that leaves the most to your heirs after all taxes at age ${s.finalAge}, counting money still in traditional accounts after the ${inputs.heirTaxRate || 0}% tax they would owe on it. Lifetime taxes: ${fmt(s.lifetimeTaxA)} without converting vs ${fmt(s.lifetimeTaxB)} with this plan; paying some tax early can still leave your heirs ahead, because the Roth grows tax-free. To pay the least tax yourself instead, choose “Pay the least tax over my lifetime” above.` });
+    notes.push({ text: `What we optimized: the plan that leaves the most to your heirs after all taxes at age ${s.finalAge}, counting money still in traditional accounts after the ${inputs.heirTaxRate || 0}% tax they would owe on it. Lifetime taxes: ${fmt(s.lifetimeTaxA)} without converting vs ${fmt(s.lifetimeTaxB)} with this plan; paying some tax early can still leave your heirs ahead, because the Roth grows tax-free. To optimize what you keep for yourself instead, choose “Keep the most for myself” above.` });
   } else {
-    notes.push({ text: `What we optimized: the plan with the lowest total tax over your lifetime — federal and state income tax, capital-gains tax, NIIT, Medicare surcharges and penalties, in today’s dollars — among plans that never leave you short of money. Lifetime taxes: ${fmt(s.lifetimeTaxA)} without converting vs ${fmt(s.lifetimeTaxB)} with this plan. What is left at the end is not part of this goal; to optimize that, choose “Leave the most to my heirs” above.` });
+    notes.push({ text: `What we optimized: the plan that leaves you the most to spend at age ${s.finalAge}, among plans that never leave you short of money. “Yours to spend” is everything in your accounts, minus the tax you (or your surviving spouse) would owe to draw it all out: the traditional balance and the taxable account’s untaxed gains taken in equal parts over ${s.drawdownYears} years, on top of your Social Security and pension, at your filing status and the federal, state, capital-gains, NIIT and Medicare-surcharge rules of that time. Roth and HSA money counts in full. With this plan: ${fmt(s.spendableB)} (after ${fmt(s.drawdownTaxB)} of that tax); without converting: ${fmt(s.spendableA)} (after ${fmt(s.drawdownTaxA)}). Lifetime taxes: ${fmt(s.lifetimeTaxA)} without converting vs ${fmt(s.lifetimeTaxB)} with this plan. To optimize what your heirs receive instead, choose “Leave the most to my heirs” above.` });
     if (passedOver.length) {
-      notes.push({ tone: 'warn', text: `Set aside: plans filling up to the ${topPassedOver} bracket would pay less tax over your lifetime, but only because your savings would run out${passedOverOut ? ` (at about age ${passedOverOut})` : ''}, leaving spending unpaid. We never suggest a plan that leaves you short of money when a gentler plan doesn’t.` });
+      notes.push({ tone: 'warn', text: `Set aside: plans filling up to the ${topPassedOver} bracket would end with more to spend on paper, but would leave spending unpaid along the way${passedOverOut ? ` (your savings would run out at about age ${passedOverOut})` : ''}. We never suggest a plan that leaves you short of money when a gentler plan doesn’t.` });
     }
   }
   if (s.irmaaYearsA || s.irmaaYearsB) {
@@ -3482,25 +3483,24 @@ function PlainSummary({ result, summary: s, inputs, rates, inflationRate, onAppl
     ),
     heirsGoal
       ? React.createElement(AfterTaxChart, { result, inflationRate })
-      : React.createElement(LifetimeTaxChart, { result, inflationRate }),
+      : React.createElement(SpendableChart, { result, inflationRate }),
     React.createElement('p', { className: 'plain-footnote' },
       `All amounts are in today’s dollars. This is an estimate based on the assumptions you entered and ${rates.taxYear} tax rules — not tax advice.`)
   );
 }
 
-/* ---- Taxes paid so far, both paths (plain view chart, lifetime-tax goal) ---- */
-function LifetimeTaxChart({ result, inflationRate }) {
+/* ---- Spendable wealth over time (plain view chart, "keep the most for myself") ---- */
+function SpendableChart({ result, inflationRate }) {
   const deflate = makeDeflate(true, inflationRate);
-  let cumA = 0, cumB = 0;
-  const data = result.scenarioA.map((a, i) => {
-    cumA += deflate(a.totalTax, i);
-    cumB += deflate(result.scenarioB[i] ? result.scenarioB[i].totalTax : 0, i);
-    return { age: a.age, noConversion: Math.round(cumA), plan: Math.round(cumB) };
-  });
+  const data = result.scenarioA.map((a, i) => ({
+    age: a.age,
+    noConversion: Math.round(deflate(a.spendableWealth, i)),
+    plan: Math.round(deflate(result.scenarioB[i] ? result.scenarioB[i].spendableWealth : 0, i))
+  }));
   return React.createElement('div', { className: 'card' },
-    React.createElement('h3', null, 'Taxes paid so far'),
+    React.createElement('h3', null, 'What you’d have to spend'),
     React.createElement('p', { className: 'chart-caption' },
-      'Everything paid each year — federal and state income tax, capital-gains tax, NIIT, Medicare surcharges and penalties — added up over time in today’s dollars. This is the figure the plan was chosen on: a conversion plan pays more up front and less later, and the lines cross at the break-even age.'),
+      `Everything in your accounts each year, minus the tax you’d owe to draw it all out over ${E.DRAWDOWN_YEARS} years. Today’s dollars. The value at the end is the figure the plan was chosen on; a conversion plan dips first (tax paid up front) and pulls ahead later.`),
     React.createElement('div', { className: 'chart-container' },
       React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
         React.createElement(LineChart, { data, margin: { top: 5, right: 20, bottom: 5, left: 20 } },
@@ -3570,7 +3570,7 @@ function YearMath({ result, rates }) {
   return React.createElement('div', { className: 'card' },
     React.createElement('h2', null, 'Show the math'),
     React.createElement('p', { className: 'chart-caption' },
-      `Step-by-step tax calculation for one year, in that year’s dollars (brackets and limits indexed from ${rates.taxYear}). The suggested plan is the one that ${result.goal === 'heirs' ? 'leaves the most to your heirs after all taxes' : 'pays the least tax over your lifetime without leaving you short of money'}; pick a year to see how its tax is worked out.`),
+      `Step-by-step tax calculation for one year, in that year’s dollars (brackets and limits indexed from ${rates.taxYear}). The suggested plan is the one that ${result.goal === 'heirs' ? 'leaves the most to your heirs after all taxes' : 'leaves you the most to spend at the end without leaving you short of money'}; pick a year to see how its tax is worked out.`),
     React.createElement('div', { className: 'math-controls' },
       React.createElement('select', { value: scenKey, onChange: e => setScenKey(e.target.value) },
         scenarios.map(x => React.createElement('option', { key: x.key, value: x.key }, x.label))),
@@ -3654,12 +3654,16 @@ function SummaryDashboard({ result, showReal, inflationRate }) {
     React.createElement('div', { className: 'sub' }, sub));
 
   const heirsGoal = result.goal === 'heirs';
-  const goalText = heirsGoal ? 'the most left to heirs after tax' : 'the lowest lifetime tax among plans that never run short of money';
-  const wealthCard = card(netDiff > 0 ? 'positive' : 'negative', heirsGoal ? 'After-Tax Wealth Advantage' : 'After-Tax Wealth Difference', fmt(netDiff), netDiff > 0 ? 'green' : 'red',
-    `No Conversion: ${fmt(netA)} vs Plan: ${fmt(netB)} at age ${lastB.age} (traditional balances counted after heirs' tax)${heirsGoal ? ' · the figure the plan was chosen on' : ''}`);
-  const taxCard = card(taxA - taxB >= 0 ? 'positive' : 'negative', heirsGoal ? 'Lifetime Taxes' : 'Lifetime Tax Saved', heirsGoal ? fmt(taxB) : fmt(taxA - taxB), heirsGoal ? 'blue' : (taxA - taxB >= 0 ? 'green' : 'red'),
-    heirsGoal ? `No Conversion: ${fmt(taxA)} · difference ${fmt(taxA - taxB)}`
-      : `No Conversion: ${fmt(taxA)} vs Plan: ${fmt(taxB)} (federal, state, NIIT, IRMAA, penalties) · the figure the plan was chosen on`);
+  const goalText = heirsGoal ? 'the most left to heirs after tax' : 'the most spendable wealth at the end among plans that never run short of money';
+  const spendA = deflate(lastA.spendableWealth, lastIdxA), spendB = deflate(lastB.spendableWealth, lastIdxB);
+  const spendDiff = spendB - spendA;
+  const wealthCard = heirsGoal
+    ? card(netDiff > 0 ? 'positive' : 'negative', 'After-Tax Wealth Advantage', fmt(netDiff), netDiff > 0 ? 'green' : 'red',
+      `No Conversion: ${fmt(netA)} vs Plan: ${fmt(netB)} at age ${lastB.age} (traditional balances counted after heirs' tax) · the figure the plan was chosen on`)
+    : card(spendDiff > 0 ? 'positive' : 'negative', 'Spendable Wealth Advantage', fmt(spendDiff), spendDiff > 0 ? 'green' : 'red',
+      `No Conversion: ${fmt(spendA)} vs Plan: ${fmt(spendB)} at age ${lastB.age} (all accounts, minus the tax to draw them down over ${E.DRAWDOWN_YEARS} years: ${fmt(deflate(lastA.drawdownTax, lastIdxA))} vs ${fmt(deflate(lastB.drawdownTax, lastIdxB))}) · the figure the plan was chosen on`);
+  const taxCard = card(taxA - taxB >= 0 ? 'positive' : 'neutral', 'Lifetime Taxes', fmt(taxB), 'blue',
+    `No Conversion: ${fmt(taxA)} · difference ${fmt(taxA - taxB)}`);
 
   return React.createElement('div', null,
     React.createElement('p', { className: 'details-note' },
@@ -3667,8 +3671,8 @@ function SummaryDashboard({ result, showReal, inflationRate }) {
       (chosen.irmaaMode === 'avoid' ? ', staying under the next Medicare IRMAA threshold' : ', ignoring Medicare IRMAA thresholds') +
       (chosen.auto ? ` (chosen automatically from every bracket, with and without IRMAA limits, for ${goalText}).` : ` (your chosen bracket; with and without IRMAA limits, for ${goalText}).`)),
     React.createElement('div', { className: 'summary-grid' },
-      heirsGoal ? wealthCard : taxCard,
-      heirsGoal ? taxCard : wealthCard,
+      wealthCard,
+      taxCard,
       card('neutral', 'Breakeven Age', breakevenAge ? `Age ${breakevenAge}` : 'N/A', 'blue',
         breakevenAge ? 'When lifetime taxes drop back to (or below) the no-conversion path' : 'Plan never pays more tax in total, or never catches up'),
       irmaaYears > 0 && card('warning', 'IRMAA Years', `${irmaaYears} years`, 'red', 'Years with Medicare income surcharges in the plan'),
@@ -3679,8 +3683,8 @@ function SummaryDashboard({ result, showReal, inflationRate }) {
       lastC && (heirsGoal
         ? card('neutral', 'Custom Strategy', fmt(deflate(lastC.netPosition, lastIdxC)), 'blue',
           `After-tax wealth at age ${lastC.age} · lifetime taxes ${fmt(sumOver(scenarioC, 'totalTax'))}`)
-        : card('neutral', 'Custom Strategy', fmt(sumOver(scenarioC, 'totalTax')), 'blue',
-          `Lifetime taxes · after-tax wealth at age ${lastC.age} ${fmt(deflate(lastC.netPosition, lastIdxC))}`))
+        : card('neutral', 'Custom Strategy', fmt(deflate(lastC.spendableWealth, lastIdxC)), 'blue',
+          `Spendable wealth at age ${lastC.age} · lifetime taxes ${fmt(sumOver(scenarioC, 'totalTax'))}`))
     )
   );
 }
@@ -3911,7 +3915,7 @@ function ChartOverlay({ title, caption, controls, onClose, children }) {
 }
 
 /* ---- Charts ---- */
-function Charts({ scenarioA, scenarioB, scenarioC, showReal, inflationRate }) {
+function Charts({ scenarioA, scenarioB, scenarioC, showReal, inflationRate, goal }) {
   const [expandedIdx, setExpandedIdx] = useState(null);
   const [costChartScenario, setCostChartScenario] = useState('optimized');
   const deflate = makeDeflate(showReal, inflationRate);
@@ -3989,11 +3993,13 @@ function Charts({ scenarioA, scenarioB, scenarioC, showReal, inflationRate }) {
   const tooltipFormatter = (value) => fmt(value);
   const pctTooltipFormatter = (value) => value == null ? '-' : `${value.toFixed(1)}%`;
 
+  /* The goal's own measure over time: net position (heirs) or spendable wealth */
+  const wealthKey = goal === 'heirs' ? 'netPosition' : 'spendableWealth';
   const wealthData = scenarioA.map((a, i) => ({
     age: a.age,
-    noConversion: Math.round(deflate(a.netPosition, i)),
-    optimized: Math.round(deflate(scenarioB[i]?.netPosition || 0, i)),
-    ...(scenarioC ? { custom: Math.round(deflate(scenarioC[i]?.netPosition || 0, i)) } : {})
+    noConversion: Math.round(deflate(a[wealthKey], i)),
+    optimized: Math.round(deflate(scenarioB[i]?.[wealthKey] || 0, i)),
+    ...(scenarioC ? { custom: Math.round(deflate(scenarioC[i]?.[wealthKey] || 0, i)) } : {})
   }));
 
   const chartEntries = [
@@ -4013,8 +4019,10 @@ function Charts({ scenarioA, scenarioB, scenarioC, showReal, inflationRate }) {
       )
     },
     {
-      title: 'After-Tax Wealth Over Time',
-      caption: 'All accounts, with traditional balances counted after the heirs’ tax rate and unpaid spending subtracted.',
+      title: goal === 'heirs' ? 'After-Tax Wealth Over Time' : 'Spendable Wealth Over Time',
+      caption: goal === 'heirs'
+        ? 'All accounts, with traditional balances counted after the heirs’ tax rate and unpaid spending subtracted. The figure the plan was chosen on.'
+        : `All accounts, minus the tax the owner would pay drawing the traditional balance and the taxable account’s gains down over ${E.DRAWDOWN_YEARS} years. The figure the plan was chosen on.`,
       body: () => React.createElement(ResponsiveContainer, { width: '100%', height: '100%' },
         React.createElement(LineChart, { data: wealthData, margin: chartMargin },
           React.createElement(CartesianGrid, { strokeDasharray: '3 3', stroke: '#e2e8f0' }),
@@ -4163,8 +4171,8 @@ function KeyAssumptions({ rates }) {
     'Spending is paid first from Social Security, pensions and RMDs, then from the taxable account. In the no-conversion baseline the traditional IRA/401(k) is drawn next once withdrawals are penalty-free (59½), then the Roth, then the HSA — the usual order. Conversion plans fill the target bracket with the conversion, so they draw the Roth next (contributions, then conversions oldest first, then earnings), then extra traditional withdrawals, then the HSA. Before 59½ every plan draws the Roth before the traditional account. Extra cash (e.g. large RMDs) is reinvested in the taxable account.',
     'Taxes are added to spending and paid the same way, unless you choose to pay conversion tax from the converted amount (withholding), which reduces what reaches the Roth and counts as an early distribution before 59½.',
     'Optimized strategy: each retired year, convert enough to fill ordinary taxable income to the top of the target bracket. In "let the calculator choose" mode every bracket from 10% to 35% is tried, each with and without staying $1,000 under the next Medicare IRMAA threshold. No conversions are made while working.',
-    'Goal “Pay the least tax over my lifetime” (the default): the plan with the lowest total tax over the projection — federal and state income tax, capital-gains tax, NIIT, Medicare IRMAA surcharges and penalties — each year’s tax counted in today’s dollars (deflated by your inflation rate). Guard: a plan that leaves spending unpaid is never chosen over one that leaves less unpaid, whatever its tax, because running out of money also ends the tax bill. Ties go to the less aggressive plan (lower bracket; staying under the IRMAA threshold before ignoring it). This goal does not count what is left at the end, and tax paid early forgoes the growth that money would have earned, so the suggested plan can leave less in your accounts at the end while paying less tax; the results show both figures.',
-    'Goal “Leave the most to my heirs”: the plan with the largest after-tax wealth at the end of the projection, minus any unpaid spending. After-tax wealth: Roth + taxable + (traditional + HSA) × (1 − heirs’ tax rate). Taxable accounts get a stepped-up basis at death, so no capital-gains tax is charged on them. Profiles saved before the goal question existed load with the lifetime-tax goal.',
+    'Goal “Keep the most for myself” (the default): the plan with the most spendable wealth at the end of the projection, in today’s dollars. Spendable wealth = Roth + HSA + taxable account + traditional balance − the drawdown tax: the extra federal and state income tax, capital-gains tax, NIIT and Medicare IRMAA the owner (or the surviving spouse, at their filing status) would pay taking the traditional balance and the taxable account’s unrealized gains out in equal parts over 10 years, on top of that year’s Social Security, pension and dividends, using that year’s indexed brackets, deductions and thresholds. It is a valuation, not a spending plan: it counts the growth given up by paying tax early as well as the tax saved later. Guard: a plan that leaves spending unpaid is never chosen over one that leaves less unpaid, whatever it ends with. Ties go to the less aggressive plan (lower bracket; staying under the IRMAA threshold before ignoring it).',
+    'Goal “Leave the most to my heirs”: the plan with the largest after-tax wealth at the end of the projection, minus any unpaid spending. After-tax wealth: Roth + taxable + (traditional + HSA) × (1 − heirs’ tax rate). Taxable accounts get a stepped-up basis at death, so no capital-gains tax is charged on them. Profiles saved before the goal question existed load with “Keep the most for myself”.',
     'Federal tax: ordinary income through the brackets; qualified dividends and long-term gains stacked on top at 0/15/20%, with any unused standard deduction applied to them first; 3.8% NIIT on the lesser of investment income or MAGI over the threshold.',
     'Standard deduction includes the extra amount for each person 65+. The senior deduction ($6,000 per person 65+, phased out at 6% of MAGI above $75K single / $150K joint, not for married filing separately) applies 2025–2028 only.',
     'Social Security: up to 85% taxable using provisional income (IRS Pub 915). If you have not started yet, your benefit at full retirement age is adjusted for your start age (reduced up to 30% at 62, increased 8%/year after full retirement age up to 70). If your start age is below your current age you already collect, so the amount you enter is used as is. Benefits rise with inflation. The earnings test (benefits withheld while working before full retirement age) is not modeled.',
@@ -4510,7 +4518,7 @@ function App() {
 
           activeTab === 'summary' && React.createElement(React.Fragment, null,
             React.createElement(SummaryDashboard, { result: r, showReal, inflationRate: infl }),
-            React.createElement(Charts, { scenarioA: r.scenarioA, scenarioB: r.scenarioB, scenarioC: r.scenarioC, showReal, inflationRate: infl })
+            React.createElement(Charts, { scenarioA: r.scenarioA, scenarioB: r.scenarioB, scenarioC: r.scenarioC, showReal, inflationRate: infl, goal: r.goal })
           ),
           activeTab === 'tableA' && React.createElement('div', { className: 'card' },
             React.createElement('h2', null, 'No Roth conversions'),

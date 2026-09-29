@@ -171,7 +171,7 @@ try {
     await context.close();
   }
 
-  /* 4c. Goal: an older saved profile (no goal) loads with the lifetime-tax goal;
+  /* 4c. Goal: an older saved profile (no goal) loads with "Keep the most for myself";
      the heirs' tax rate appears only for the heirs goal; results say what was optimized */
   {
     const { page, errors, context } = await newPage();
@@ -183,19 +183,25 @@ try {
     await page.evaluate((p) => localStorage.setItem('roth-optimizer-profile', JSON.stringify(p)), oldProfile);
     await page.reload();
     await page.waitForSelector('text=Roth Conversion Ladder Optimizer', { timeout: 30000 });
-    check(await page.locator('input[name="goal"][value="lifetimeTax"]').isChecked(), 'older saved profile (no goal) loads with the lifetime-tax goal');
-    check((await page.locator('label', { hasText: "Heirs' Tax Rate" }).count()) === 0, "heirs' tax rate hidden under the lifetime-tax goal");
+    /* A profile from the first version of the question said 'lifetimeTax'; it now means the same default */
+    await page.evaluate((p) => localStorage.setItem('roth-optimizer-profile', JSON.stringify({ ...p, goal: 'lifetimeTax' })), oldProfile);
+    await page.reload();
+    await page.waitForSelector('text=Roth Conversion Ladder Optimizer', { timeout: 30000 });
+    check(await page.locator('input[name="goal"][value="spendable"]').isChecked(), 'older saved profile (no goal) loads with "Keep the most for myself"');
+    check((await page.locator('label', { hasText: "Heirs' Tax Rate" }).count()) === 0, "heirs' tax rate hidden under the spendable goal");
     await page.getByRole('button', { name: 'Calculate Optimal Strategy' }).first().click();
     await page.waitForSelector('.plain-headline', { timeout: 30000 });
     const ltHeadline = await page.locator('.plain-headline').innerText();
-    check(/pays the least tax over your lifetime/.test(ltHeadline), 'headline says the plan pays the least lifetime tax');
+    check(/leaves you the most to spend/.test(ltHeadline), 'headline says the plan leaves the most to spend');
+    check((await page.locator('.plain-tile .label', { hasText: 'Yours to spend' }).count()) === 1, 'spendable tile shown');
     check((await page.locator('.plain-tile .label', { hasText: 'Tax over your lifetime' }).count()) === 1, 'lifetime-tax tile shown');
-    check(/lowest total tax over your lifetime/.test(await page.locator('.plain-notes').innerText()), 'notes explain what was optimized');
-    check((await page.locator('.card h3', { hasText: 'Taxes paid so far' }).count()) === 1, 'plain chart shows taxes paid so far');
+    check(/minus the tax you \(or your surviving spouse\) would owe to draw it all out/.test(await page.locator('.plain-notes').innerText()), 'notes explain the spendable measure');
+    check((await page.locator('.card h3', { hasText: 'What you’d have to spend' }).count()) === 1, 'plain chart shows spendable wealth');
     await page.locator('.details-toggle button').click();
-    check(/lowest lifetime tax/.test(await page.locator('.details-note').innerText()), 'details note names the goal');
+    check(/most spendable wealth/.test(await page.locator('.details-note').innerText()), 'details note names the goal');
+    check((await page.locator('.summary-card .label', { hasText: 'Spendable Wealth Advantage' }).count()) === 1, 'details card shows spendable wealth');
     await page.locator('.details-view .tab', { hasText: 'Show the math' }).click();
-    check(/pays the least tax over your lifetime/.test(await page.locator('.details-view .chart-caption').first().innerText()), 'show-the-math names the goal');
+    check(/leaves you the most to spend/.test(await page.locator('.details-view .chart-caption').first().innerText()), 'show-the-math names the goal');
     await page.locator('.results-close').click();
     await page.locator('label.goal-option', { hasText: 'Leave the most to my heirs' }).click();
     check(await page.locator('input[name="goal"][value="heirs"]').isChecked(), 'heirs goal selected');

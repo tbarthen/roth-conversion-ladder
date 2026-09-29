@@ -2,7 +2,7 @@
 
 The form asks one question near the top: **"What matters most to you?"**
 
-- **Pay the least tax over my lifetime** (the default)
+- **Keep the most for myself** (the default)
 - **Leave the most to my heirs**
 
 The answer decides which of the conversion plans the optimizer tries is the one
@@ -11,13 +11,18 @@ each year, the candidates tried) is the same under both goals.
 
 ## Why there are two goals
 
-Until this change the optimizer ranked every plan by the after-tax estate at the
-end of the projection (traditional balances counted after the heirs' tax rate,
-less any spending the plan could not pay for). That is the right measure for a
-household whose aim is a bequest. For most users it is the wrong one: a couple
-that does not care what is left at death could be told not to convert even when
-a plan filling the 22% bracket cuts their own lifetime taxes by a large amount
-without changing what they can spend.
+The optimizer originally ranked every plan by the after-tax estate at the end
+of the projection (traditional balances counted after the heirs' tax rate, less
+any spending the plan could not pay for). That is the right measure for a
+household whose aim is a bequest. For a household that does not care what is
+left at death it is the wrong one, and it errs toward converting too little.
+
+The first replacement, the lowest total lifetime tax in today's dollars, erred
+the other way. Summing taxes deflated by inflation ignores the growth given up
+by paying tax early, so it favoured very large early conversions: a wealthy
+California couple (about $3M traditional, $2.7M taxable, $0.8M Roth, spending
+$115K) was told to convert about $450K a year at the 32% bracket. The current
+measure, spendable wealth, counts both effects.
 
 ## The candidates (both goals)
 
@@ -29,86 +34,96 @@ ordered from the **least to the most aggressive**: lower bracket first, and
 within a bracket, staying under the IRMAA threshold ("avoid") before ignoring it.
 That order is what "less aggressive" means below.
 
-## Goal 1: pay the least tax over my lifetime
+## Goal 1: keep the most for myself (spendable wealth)
 
-**Measure.** Lifetime tax = the sum over the projection of each year's total
-tax, in today's dollars. A year's total tax is federal income tax + state income
-tax + capital-gains tax + NIIT + Medicare IRMAA surcharges + early-withdrawal,
-HSA and Roth penalties (the projection's `totalTax`). Each year's figure is
-deflated by the user's inflation rate before it is added, the same "today's
-dollars" convention the rest of the app uses.
+**Measure.** Spendable wealth at the end of the plan, in today's dollars:
 
-**Guard.** Running out of money also ends the tax bill, so without a guard the
-cheapest plan could be the one that goes broke. The rule: a plan that leaves
-spending unpaid is never chosen over one that leaves less unpaid, whatever its
-tax. In practice: among plans that pay for every year, the one with the lowest
-lifetime tax wins; if every plan falls short, the one falling short by least
-wins, and lifetime tax only breaks ties among equals. The guard also lets a more
-aggressive plan beat a less aggressive one that runs out (conversions can make
-money last longer).
+    Roth + HSA + taxable account + traditional balance − drawdown tax
+
+The **drawdown tax** is what the owner (or, after the projected death, the
+surviving spouse) would pay to take the money out: the traditional balance and
+the taxable account's unrealized gains (balance − cost basis) are drawn in
+equal parts over `DRAWDOWN_YEARS` (10) years, on top of that year's Social
+Security, pension and dividends, at that year's filing status and ages, with
+that year's indexed brackets, deductions and thresholds. The tax is computed
+with the engine's own functions (`computeYearTax` for federal, state,
+capital-gains and NIIT; `irmaaSurcharge` for Medicare), as the difference
+between the year's tax with and without the withdrawal, times ten. Roth and
+HSA money counts in full (HSA for medical costs). It is a valuation, not a
+spending plan; its purpose is to make a dollar in a traditional account worth
+less than a dollar in a Roth by exactly the tax the owner would face, at their
+own brackets rather than a flat rate.
+
+Because it is a wealth measure, it charges the growth given up by paying
+conversion tax early, and because it nets out the future tax on the traditional
+balance, it credits the tax saved by converting. For the couple above it lands
+at the 24% bracket (see the test).
+
+The projection carries `drawdownTax` and `spendableWealth` on every row, so the
+measure can be charted over time.
+
+**Guard.** A plan that leaves spending unpaid is never chosen over one that
+leaves less unpaid, whatever it ends with. Among plans that pay for every year,
+the one with the most spendable wealth wins; if every plan falls short, the one
+falling short by least wins. The guard also lets a more aggressive plan beat a
+less aggressive one that runs out.
 
 **Ties.** Differences of a dollar or less are ties, and a tie goes to the less
-aggressive plan. Identical plans are common: at a high bracket the whole balance
-is converted in the first year, so the IRMAA-avoid and IRMAA-ignore variants,
-or two adjacent brackets, produce the same projection.
+aggressive plan. Identical plans are common: at a high bracket the whole
+balance is converted in the first year, so the IRMAA-avoid and IRMAA-ignore
+variants, or two adjacent brackets, produce the same projection.
 
-**Worth it?** The plan is recommended when it converts something, saves more
-than $500 of lifetime tax, and does not leave more spending unpaid than not
-converting. A plan that "saves" tax only because the money runs out is not
-recommended; the summary says so.
-
-**What it does not count.** What is left at the end is not part of this goal.
-Tax paid early forgoes the growth that money would have earned, and the
-deflation is by inflation, not by the investment return, so this goal favours
-paying tax sooner. For a wealthy household the suggested plan can pay much less
-lifetime tax and still leave noticeably less in the accounts at the end, before
-any heirs' tax. The results show both figures side by side, and the notes point
-to the other goal.
+**Worth it?** The plan is recommended when it converts something, ends with
+more than $500 more spendable wealth than not converting, and does not leave
+more spending unpaid than not converting.
 
 ## Goal 2: leave the most to my heirs
 
-Unchanged from the previous behaviour: the plan with the highest **net
+Unchanged from the original behaviour: the plan with the highest **net
 position** at the end of the projection, where net position = Roth + taxable +
 (traditional + HSA) × (1 − heirs' tax rate) − spending the plan could not pay
 for. Ties (a dollar or less) go to the less aggressive plan. The heirs' tax rate
-field is shown only under this goal; under the lifetime-tax goal it changes
-nothing.
+field is shown only under this goal; under the other goal it changes nothing.
 
 ## Where the goal shows up in the results
 
-Every place that used to speak of the estate now reflects the chosen goal and
-says what was optimized:
+Every place that compares "the plan" with not converting reflects the chosen
+goal and says what was optimized:
 
-| Place | Lifetime-tax goal | Heirs goal |
+| Place | Keep the most for myself | Leave the most to my heirs |
 | --- | --- | --- |
-| Headline / subline | "...this is the one that pays the least tax over your lifetime" | "...this is the one that leaves the most to your heirs after all taxes" |
-| "Worth it" test | lifetime tax saved > $500 and no extra unpaid spending | after-tax estate gain > $500 |
-| First tile | Tax over your lifetime (± vs not converting) | Left to your heirs (± vs not converting) |
-| Second tile | Left at the end, before heirs' tax (so the trade-off is visible) | Tax over your lifetime |
-| Break-even tile | same age; "not in your lifetime" no longer promises a payoff for heirs | as before |
-| Notes | what was optimized, the plans set aside by the guard and why, how to switch goal | what was optimized, the heirs' rate used, how to switch goal |
-| Plain-view chart | Taxes paid so far, both paths | What you'd leave after taxes |
-| Details summary | Lifetime Tax Saved first, After-Tax Wealth Difference second | After-Tax Wealth Advantage first, Lifetime Taxes second |
-| Details charts | After-Tax Wealth Over Time added, so both measures are always available | same |
+| Headline / subline | "...this is the one that leaves you the most to spend" | "...this is the one that leaves the most to your heirs after all taxes" |
+| "Worth it" test | spendable-wealth gain > $500 and no extra unpaid spending | after-tax estate gain > $500 |
+| First tile | Yours to spend (± vs not converting, both totals) | Left to your heirs (± vs not converting) |
+| Second tile | Tax over your lifetime | Tax over your lifetime |
+| Break-even tile | same age; "not in your lifetime" does not promise a payoff for heirs | as before |
+| Notes | what was optimized, the drawdown tax in each total, the plans set aside by the guard, how to switch goal | what was optimized, the heirs' rate used, how to switch goal |
+| Plain-view chart | What you'd have to spend, over time | What you'd leave after taxes |
+| Details summary | Spendable Wealth Advantage first (with both drawdown taxes), Lifetime Taxes second | After-Tax Wealth Advantage first, Lifetime Taxes second |
+| Details charts | Spendable Wealth Over Time | After-Tax Wealth Over Time |
 | Show the math | caption names the goal the suggested plan was chosen for | same |
-| Key Assumptions | one bullet per goal, including the guard and the time-value caveat | |
+| Key Assumptions | one bullet per goal, including the drawdown valuation and the guard | |
 
 ## Saved profiles
 
 `goal` is part of the profile (export, import, browser storage). Profiles saved
-before the question existed have no goal and load with the lifetime-tax goal;
-an import reports the field as defaulted so the user sees the new question. The
-export schema version is now 2. Sample profiles do not set a goal; picking one
-keeps the goal already chosen.
+before the question existed have no goal, and profiles from the first version
+of the question say `lifetimeTax`; both load as `spendable`. An import without
+the field reports it as defaulted so the user sees the question. The export
+schema version is 2. Sample profiles do not set a goal; picking one keeps the
+goal already chosen.
 
 ## Engine API (`js/tax-engine.js`)
 
-- `normalizeInputs(raw).goal`: `'heirs'` or `'lifetimeTax'` (anything else, or missing, is `'lifetimeTax'`).
-- `lifetimeTax(scenario, inflationRate)`, `unmetSpendingTotal(scenario, inflationRate)`, `planMetrics(scenario, inflationRate)`.
+- `GOALS = ['spendable', 'heirs']`, `DRAWDOWN_YEARS = 10`.
+- `normalizeInputs(raw).goal`: `'heirs'` or `'spendable'` (anything else, or missing, is `'spendable'`).
+- Projection rows: `drawdownTax`, `spendableWealth` (that year's dollars), alongside `afterTaxEstate` and `netPosition`.
+- `lifetimeTax(scenario, inflationRate)`, `unmetSpendingTotal(scenario, inflationRate)`, `planMetrics(scenario, inflationRate)` (lifetime tax, unpaid spending, spendable wealth and drawdown tax in today's dollars; net position and after-tax estate as projected).
 - `choosePlan(candidates, goal)`: the selection rule above, on candidates ordered least-aggressive first; returns `{ index, passedOver }`.
-- `optimizeStrategy(raw, td, { goal, ... })`: `goal` defaults to the inputs' goal. The result carries `goal`, `chosen.goal`, `chosen.passedOver`, `baseline` (the no-conversion plan's metrics) and per-candidate `lifetimeTax`, `unmetSpending`, `netPosition`, `afterTaxEstate`, `runsOutAge`, `chosen`.
-- `summarizePlan(result, inflationRate)`: `goal`, `worthIt`, `shortOfMoney`, `gainToday` (the gain under the goal), `taxSavedToday`, `estateGainToday`, `totalEstateA/B`, `estateA/B`, `unmetA/B`, `passedOver`.
+- `optimizeStrategy(raw, td, { goal, ... })`: `goal` defaults to the inputs' goal. The result carries `goal`, `chosen.goal`, `chosen.passedOver`, `baseline` (the no-conversion plan's metrics) and per-candidate metrics plus `chosen`.
+- `summarizePlan(result, inflationRate)`: `goal`, `worthIt`, `shortOfMoney`, `gainToday` (the gain under the goal), `spendableGainToday`, `spendableA/B`, `drawdownTaxA/B`, `drawdownYears`, `taxSavedToday`, `estateGainToday`, `totalEstateA/B`, `estateA/B`, `unmetA/B`, `passedOver`.
 - `strategyScore(scenario)` is unchanged: the heirs' measure (net position at the end).
 
-Tests: `tests/goal.test.js` (the California couple, the guard, tie-breaking,
+Tests: `tests/goal.test.js` (the California couple, a modest retiree, the
+hand-worked valuation, the survivor's filing status, the guard, tie-breaking,
 profile migration) and the goal step of `scripts/smoke-test.mjs`.
