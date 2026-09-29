@@ -171,6 +171,47 @@ try {
     await context.close();
   }
 
+  /* 4c. Goal: an older saved profile (no goal) loads with the lifetime-tax goal;
+     the heirs' tax rate appears only for the heirs goal; results say what was optimized */
+  {
+    const { page, errors, context } = await newPage();
+    const oldProfile = { currentAge: 68, retirementAge: 62, lifeExpectancy: 92, filingStatus: 'marriedFilingJointly', spouseAge: 65, spouseLifeExpectancy: 94,
+      stateAbbr: 'CA', stateTaxRateOverride: '', traditionalBalance: 2500000, rothBalance: 300000, taxableBalance: 500000, taxableCostBasis: 300000, hsaBalance: 40000,
+      annualContributions: { traditional: 0, roth: 0, taxable: 0, hsa: 0 }, grossIncome: 0, ssAnnualBenefit: 38000, ssStartAge: 67, spouseSsBenefit: 32000, spouseSsStartAge: 67,
+      pensionIncome: 24000, annualSpending: 120000, preRetirementGrowth: 6, rothGrowth: 6, taxableGrowth: 6, dividendYield: 1.3, inflationRate: 2.5, bracketInflation: 2.5,
+      heirTaxRate: 24, targetBracket: 'auto', customConversion: 0, taxPaymentSource: 'taxable' };
+    await page.evaluate((p) => localStorage.setItem('roth-optimizer-profile', JSON.stringify(p)), oldProfile);
+    await page.reload();
+    await page.waitForSelector('text=Roth Conversion Ladder Optimizer', { timeout: 30000 });
+    check(await page.locator('input[name="goal"][value="lifetimeTax"]').isChecked(), 'older saved profile (no goal) loads with the lifetime-tax goal');
+    check((await page.locator('label', { hasText: "Heirs' Tax Rate" }).count()) === 0, "heirs' tax rate hidden under the lifetime-tax goal");
+    await page.getByRole('button', { name: 'Calculate Optimal Strategy' }).first().click();
+    await page.waitForSelector('.plain-headline', { timeout: 30000 });
+    const ltHeadline = await page.locator('.plain-headline').innerText();
+    check(/pays the least tax over your lifetime/.test(ltHeadline), 'headline says the plan pays the least lifetime tax');
+    check((await page.locator('.plain-tile .label', { hasText: 'Tax over your lifetime' }).count()) === 1, 'lifetime-tax tile shown');
+    check(/lowest total tax over your lifetime/.test(await page.locator('.plain-notes').innerText()), 'notes explain what was optimized');
+    check((await page.locator('.card h3', { hasText: 'Taxes paid so far' }).count()) === 1, 'plain chart shows taxes paid so far');
+    await page.locator('.details-toggle button').click();
+    check(/lowest lifetime tax/.test(await page.locator('.details-note').innerText()), 'details note names the goal');
+    await page.locator('.details-view .tab', { hasText: 'Show the math' }).click();
+    check(/pays the least tax over your lifetime/.test(await page.locator('.details-view .chart-caption').first().innerText()), 'show-the-math names the goal');
+    await page.locator('.results-close').click();
+    await page.locator('label.goal-option', { hasText: 'Leave the most to my heirs' }).click();
+    check(await page.locator('input[name="goal"][value="heirs"]').isChecked(), 'heirs goal selected');
+    check((await page.locator('label', { hasText: "Heirs' Tax Rate" }).count()) === 1, "heirs' tax rate shown under the heirs goal");
+    await page.getByRole('button', { name: 'Calculate Optimal Strategy' }).first().click();
+    await page.waitForSelector('.plain-headline', { timeout: 30000 });
+    check(/leaves the most to your heirs/.test(await page.locator('.plain-headline').innerText()), 'headline says the plan leaves the most to heirs');
+    check((await page.locator('.plain-tile .label', { hasText: 'Left to your heirs' }).count()) === 1, 'heirs tile shown');
+    check((await page.locator('.card h3', { hasText: 'What you’d leave after taxes' }).count()) === 1, 'plain chart shows after-tax wealth');
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'heirs-goal.png'), fullPage: true });
+    await page.locator('.results-close').click();
+    check(JSON.parse(await page.evaluate(() => localStorage.getItem('roth-optimizer-profile'))).goal === 'heirs', 'goal saved with the profile');
+    check(errors.length === 0, `no page errors (${errors.join('; ')})`);
+    await context.close();
+  }
+
   /* 5. Stale data: banner + Check now finds newer published data */
   {
     const old = { ...rates, lastChecked: '2025-01-01', lastUpdated: '2025-01-01' };

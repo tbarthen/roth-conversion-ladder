@@ -294,12 +294,20 @@ test('fuzz: random profiles never produce NaN, negatives or lost money', () => {
 
 test('optimizer tries every bracket in auto mode and returns the best', () => {
   const inp = baseInputs({ traditionalBalance: 1500000 });
-  const r = E.optimizeStrategy(inp, td, { targetBracket: 'auto', startYear: START });
+  /* heirs goal: the highest net position (after-tax estate less unpaid spending) */
+  const r = E.optimizeStrategy(inp, td, { targetBracket: 'auto', startYear: START, goal: 'heirs' });
   assert.equal(r.candidates.length, E.TARGET_BRACKETS.length * 2);
-  const best = Math.max(...r.candidates.map(c => c.score));
+  const best = Math.max(...r.candidates.map(c => c.netPosition));
   near(assert, E.strategyScore(r.scenarioB), best, 1.01);
   assert.equal(r.chosen.auto, true);
   assert.equal(r.scenarioC, null);
+  /* default goal: the lowest lifetime tax among the plans that leave the least spending unpaid */
+  const lt = E.optimizeStrategy(inp, td, { targetBracket: 'auto', startYear: START });
+  assert.equal(lt.goal, 'lifetimeTax');
+  const leastUnmet = Math.min(...lt.candidates.map(c => c.unmetSpending));
+  const cheapest = Math.min(...lt.candidates.filter(c => c.unmetSpending <= leastUnmet + 1).map(c => c.lifetimeTax));
+  near(assert, E.lifetimeTax(lt.scenarioB, 2), cheapest, 1.01);
+  assert.equal(lt.candidates.filter(c => c.chosen).length, 1);
   const fixed = E.optimizeStrategy(inp, td, { targetBracket: '0.22', customConversion: 30000, startYear: START });
   assert.equal(fixed.chosen.rate, 0.22);
   assert.equal(fixed.candidates.length, 2);
@@ -333,7 +341,13 @@ test('effective rate and plain-English summary', () => {
     assert.ok(s.firstConversion.amountToday > 0);
     assert.ok(s.averageConversionToday > 0);
   }
-  near(assert, s.gainToday, (E.strategyScore(r.scenarioB) - E.strategyScore(r.scenarioA)) / 1.02 ** 30, 1);
+  /* default goal: the headline gain is the lifetime tax saved; the estate gain is still reported */
+  assert.equal(s.goal, 'lifetimeTax');
+  near(assert, s.gainToday, s.lifetimeTaxA - s.lifetimeTaxB, 1e-6);
+  near(assert, s.estateGainToday, (E.strategyScore(r.scenarioB) - E.strategyScore(r.scenarioA)) / 1.02 ** 30, 1);
+  const h = E.summarizePlan(E.optimizeStrategy(baseInputs({ traditionalBalance: 1500000 }), td, { startYear: START, goal: 'heirs' }), 2);
+  assert.equal(h.goal, 'heirs');
+  near(assert, h.gainToday, h.estateGainToday, 1e-6);
 });
 
 test('normalizeInputs fills defaults and clamps bad values', () => {

@@ -24,6 +24,13 @@ const REQUIRED_ITEMS = [
   'rmd', 'penalties', 'stateIncomeTax'
 ];
 const TARGET_BRACKETS = [0.10, 0.12, 0.22, 0.24, 0.32, 0.35];
+/* What the optimizer ranks conversion plans by. 'lifetimeTax' (the default):
+   the lowest total tax over the projection, in today's dollars, never at the
+   cost of running out of money. 'heirs': the largest after-tax estate at
+   the end (traditional balances counted after the heirs' tax rate). */
+const GOALS = ['lifetimeTax', 'heirs'];
+/* Differences smaller than this (dollars) are ties. */
+const TIE_TOLERANCE = 1;
 /* State data has single and joint figures; other filers use the single ones. */
 const STATE_FILING_STATUSES = ['single', 'marriedFilingJointly'];
 /* Per-state amounts from the Tax Foundation table, with sanity limits. */
@@ -977,7 +984,9 @@ function normalizeInputs(raw, td) {
     dividendYield: pct(r.dividendYield, 0, 0, 10),
     inflationRate: pct(r.inflationRate, 2.5, 0, 15),
     bracketInflation: pct(r.bracketInflation, 2.5, 0, 15),
-    heirTaxRate: pct(r.heirTaxRate, 24, 0, 60)
+    heirTaxRate: pct(r.heirTaxRate, 24, 0, 60),
+    /* Saved profiles from before the goal question have none: lifetime tax. */
+    goal: r.goal === 'heirs' ? 'heirs' : 'lifetimeTax'
   };
 }
 
@@ -1391,21 +1400,90 @@ function runProjection(rawInputs, scenario, opts, td) {
 const lastRow = (s) => s[s.length - 1];
 
 /**
- * How good a strategy is: what's left for heirs after tax at the end,
- * minus any spending the plan could not pay for along the way.
+ * The heirs' measure of a strategy: what's left for them after tax at the
+ * end, minus any spending the plan could not pay for along the way.
  */
 function strategyScore(scenario) {
   return lastRow(scenario).netPosition;
 }
 
 /**
+ * Total tax over the projection in today's dollars: federal and state income
+ * tax, capital-gains tax, NIIT, Medicare IRMAA surcharges and penalties.
+ * Each year's tax is deflated by the inflation rate before it is added.
+ */
+function lifetimeTax(scenario, inflationRate) {
+  const f = 1 + (inflationRate || 0) / 100;
+  return scenario.reduce((sum, r, i) => sum + r.totalTax / Math.pow(f, i), 0);
+}
+
+/** Spending the plan could not pay for, over the projection, in today's dollars. */
+function unmetSpendingTotal(scenario, inflationRate) {
+  const f = 1 + (inflationRate || 0) / 100;
+  return scenario.reduce((sum, r, i) => sum + r.unmetSpending / Math.pow(f, i), 0);
+}
+
+/** The figures the goals are judged on, for one strategy. */
+function planMetrics(scenario, inflationRate) {
+  const last = lastRow(scenario);
+  const out = scenario.find(r => r.unmetSpending > 1);
+  return {
+    lifetimeTax: lifetimeTax(scenario, inflationRate),
+    unmetSpending: unmetSpendingTotal(scenario, inflationRate),
+    afterTaxEstate: last.afterTaxEstate,
+    netPosition: last.netPosition,
+    runsOutAge: out ? out.age : null
+  };
+}
+
+/**
+ * Pick the winning plan for a goal. `candidates` are ordered from the least
+ * to the most aggressive (lower bracket first; within a bracket, staying
+ * under the IRMAA threshold before ignoring it), each carrying the fields of
+ * planMetrics(). Ties (within a dollar) go to the earlier, less aggressive plan.
+ *
+ * 'heirs': the highest net position (after-tax estate less unpaid spending).
+ * 'lifetimeTax': the lowest lifetime tax, with a guard: a plan that leaves
+ * spending unpaid never beats one that leaves less unpaid, whatever its tax.
+ * (Running out of money also ends the tax bill, so without the guard the
+ * cheapest plan could be the one that goes broke.)
+ *
+ * Returns { index, passedOver }: passedOver lists the plans that would have
+ * paid less lifetime tax than the winner but were set aside by the guard.
+ */
+function choosePlan(candidates, goal) {
+  if (!candidates.length) return { index: -1, passedOver: [] };
+  let best = 0;
+  if (goal === 'heirs') {
+    for (let i = 1; i < candidates.length; i++) {
+      if (candidates[i].netPosition > candidates[best].netPosition + TIE_TOLERANCE) best = i;
+    }
+    return { index: best, passedOver: [] };
+  }
+  for (let i = 1; i < candidates.length; i++) {
+    const c = candidates[i], b = candidates[best];
+    if (c.unmetSpending < b.unmetSpending - TIE_TOLERANCE) best = i;
+    else if (c.unmetSpending <= b.unmetSpending + TIE_TOLERANCE && c.lifetimeTax < b.lifetimeTax - TIE_TOLERANCE) best = i;
+  }
+  const winner = candidates[best];
+  const passedOver = candidates
+    .filter(c => c !== winner && c.lifetimeTax < winner.lifetimeTax - TIE_TOLERANCE && c.unmetSpending > winner.unmetSpending + TIE_TOLERANCE)
+    .map(({ rate, irmaaMode, lifetimeTax, unmetSpending, runsOutAge }) => ({ rate, irmaaMode, lifetimeTax, unmetSpending, runsOutAge }));
+  return { index: best, passedOver };
+}
+
+/**
  * Run the no-conversion baseline and the best conversion strategy.
  * targetBracket: 'auto' (try every bracket) or a rate like 0.24.
  * Each bracket is tried both ignoring and avoiding Medicare IRMAA
- * thresholds; the winner has the highest after-tax estate at the end.
+ * thresholds. goal (opts.goal, else the inputs' goal) decides the winner:
+ * see choosePlan().
  */
 function optimizeStrategy(rawInputs, td, opts) {
   const o = opts || {};
+  const inp = normalizeInputs(rawInputs, td);
+  const goal = GOALS.includes(o.goal) ? o.goal : inp.goal;
+  const infl = inp.inflationRate;
   const startYear = o.startYear || new Date().getFullYear();
   const base = { taxPaymentSource: o.taxPaymentSource, startYear };
   const scenarioA = runProjection(rawInputs, 'noConversion', base, td);
@@ -1416,22 +1494,24 @@ function optimizeStrategy(rawInputs, td, opts) {
   for (const rate of rates) {
     for (const irmaaMode of ['avoid', 'ignore']) {
       const scen = runProjection(rawInputs, 'optimized', { ...base, targetBracketRate: rate, irmaaMode }, td);
-      candidates.push({ rate, irmaaMode, scenario: scen, afterTaxEstate: lastRow(scen).afterTaxEstate, score: strategyScore(scen) });
+      candidates.push({ rate, irmaaMode, scenario: scen, ...planMetrics(scen, infl) });
     }
   }
-  let best = candidates[0];
-  for (const c of candidates) if (c.score > best.score + 1) best = c;
+  const pick = choosePlan(candidates, goal);
+  const best = candidates[pick.index];
   const scenarioC = o.customConversion > 0
     ? runProjection(rawInputs, 'custom', { ...base, customConversion: o.customConversion }, td)
     : null;
   return {
+    goal,
     scenarioA,
     scenarioB: best.scenario,
     scenarioC,
-    chosen: { rate: best.rate, irmaaMode: best.irmaaMode, auto: rates.length > 1 },
-    candidates: candidates.map(({ rate, irmaaMode, afterTaxEstate, score }) => ({ rate, irmaaMode, afterTaxEstate, score })),
+    chosen: { rate: best.rate, irmaaMode: best.irmaaMode, auto: rates.length > 1, goal, passedOver: pick.passedOver },
+    baseline: planMetrics(scenarioA, infl),
+    candidates: candidates.map(({ scenario, ...c }, i) => ({ ...c, chosen: i === pick.index })),
     breakevenAge: findBreakevenAge(scenarioA, best.scenario),
-    socialSecurity: (({ widowed, married, own, spouse, survivor, deathAge }) => ({ widowed, married, own, spouse, survivor, deathAge }))(socialSecurityPlan(td, normalizeInputs(rawInputs, td), startYear)),
+    socialSecurity: (({ widowed, married, own, spouse, survivor, deathAge }) => ({ widowed, married, own, spouse, survivor, deathAge }))(socialSecurityPlan(td, inp, startYear)),
     claiming: suggestSocialSecurityClaiming(rawInputs, td, { startYear })
   };
 }
@@ -1463,7 +1543,16 @@ function summarizePlan(result, inflationRate) {
   const deflate = (v, i) => v / Math.pow(1 + (inflationRate || 0) / 100, i);
   const convRows = scenarioB.map((r, i) => ({ r, i })).filter(x => x.r.conversionAmount > 0);
   const lastA = lastRow(scenarioA), lastB = lastRow(scenarioB), n = scenarioB.length - 1;
-  const gain = deflate(strategyScore(scenarioB) - strategyScore(scenarioA), n);
+  const goal = result.goal === 'heirs' ? 'heirs' : 'lifetimeTax';
+  const lifetimeTaxA = lifetimeTax(scenarioA, inflationRate), lifetimeTaxB = lifetimeTax(scenarioB, inflationRate);
+  const unmetA = unmetSpendingTotal(scenarioA, inflationRate), unmetB = unmetSpendingTotal(scenarioB, inflationRate);
+  /* What the plan gains under each goal, today's dollars */
+  const estateGain = deflate(strategyScore(scenarioB) - strategyScore(scenarioA), n);
+  const taxSaved = lifetimeTaxA - lifetimeTaxB;
+  const gain = goal === 'heirs' ? estateGain : taxSaved;
+  /* Lifetime-tax goal: a plan that leaves more spending unpaid than not
+     converting is never worth it, however little tax it pays. */
+  const shortOfMoney = goal === 'lifetimeTax' && unmetB > unmetA + TIE_TOLERANCE;
   const first = convRows[0];
   const extraTaxFirstYear = first ? deflate(first.r.totalTax - scenarioA[first.i].totalTax, first.i) : 0;
   const totalConvertedToday = convRows.reduce((s, x) => s + deflate(x.r.conversionAmount, x.i), 0);
@@ -1478,15 +1567,25 @@ function summarizePlan(result, inflationRate) {
     if (!last || last.source !== src) ssSegments.push({ source: src, fromAge: r.age, amountToday: deflate(Math.max(r.ssOwn || 0, r.ssSurvivor || 0), i) });
   });
   return {
-    worthIt: convRows.length > 0 && gain > 500,
+    goal,
+    worthIt: convRows.length > 0 && gain > 500 && !shortOfMoney,
+    shortOfMoney,
     gainToday: gain,
+    taxSavedToday: taxSaved,
+    estateGainToday: estateGain,
+    /* What is left at the end, today's dollars: before and after the heirs' tax */
+    totalEstateA: deflate(lastA.totalEstate, n),
+    totalEstateB: deflate(lastB.totalEstate, n),
+    estateA: deflate(lastA.afterTaxEstate, n),
+    estateB: deflate(lastB.afterTaxEstate, n),
+    unmetA, unmetB,
+    passedOver: result.chosen && result.chosen.passedOver ? result.chosen.passedOver : [],
     conversionYears: convRows.length,
     firstConversion: first ? { year: first.r.year, age: first.r.age, amountToday: deflate(first.r.conversionAmount, first.i), extraTaxToday: extraTaxFirstYear } : null,
     lastConversion: convRows.length ? { year: lastRow(convRows).r.year, age: lastRow(convRows).r.age } : null,
     averageConversionToday: convRows.length ? totalConvertedToday / convRows.length : 0,
     totalConvertedToday,
-    lifetimeTaxA: scenarioA.reduce((s, r, i) => s + deflate(r.totalTax, i), 0),
-    lifetimeTaxB: scenarioB.reduce((s, r, i) => s + deflate(r.totalTax, i), 0),
+    lifetimeTaxA, lifetimeTaxB,
     irmaaYearsA: scenarioA.filter(r => r.irmaaSurcharge > 0).length,
     irmaaYearsB: scenarioB.filter(r => r.irmaaSurcharge > 0).length,
     penaltyTotalB: scenarioB.reduce((s, r, i) => s + deflate(r.rothPenalty + r.earlyWithdrawalPenalty + r.hsaPenalty, i), 0),
@@ -1503,14 +1602,14 @@ function summarizePlan(result, inflationRate) {
 }
 
 return {
-  FILING_STATUSES, REQUIRED_ITEMS, TARGET_BRACKETS, RATES_SCHEMA_VERSION, STALE_AFTER_DAYS,
+  FILING_STATUSES, REQUIRED_ITEMS, TARGET_BRACKETS, GOALS, RATES_SCHEMA_VERSION, STALE_AFTER_DAYS,
   indexAmount, validateRates, formatRatesJson, ratesFreshness, isNewerRates, laggingItems, compileTaxData,
   getBrackets, getCapitalGainsBrackets, ordinaryIncomeTax, marginalRate, bracketFill, bracketCeiling,
   standardDeduction, seniorBonusDeduction, capitalGainsTax, netInvestmentIncomeTax,
   taxableSocialSecurity, stateAllowances, computeYearTax, irmaaSurcharge, irmaaThresholds,
   rmdStartAge, rmdDivisor, requiredMinimumDistribution, fullRetirementAgeMonths, ssClaimingFactor,
   survivorFullRetirementAgeMonths, ssSurvivorFactor, survivorBenefitAmount, socialSecurityPlan, suggestSocialSecurityClaiming,
-  normalizeInputs, validateInputs, runProjection, optimizeStrategy, strategyScore, findBreakevenAge, effectiveRate,
-  summarizePlan
+  normalizeInputs, validateInputs, runProjection, optimizeStrategy, strategyScore, lifetimeTax, unmetSpendingTotal,
+  planMetrics, choosePlan, findBreakevenAge, effectiveRate, summarizePlan
 };
 });
