@@ -1880,6 +1880,19 @@ h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bot
 .form-group.field-defaulted select { background-color: #fef9c3; border-color: #eab308; }
 .form-group.field-defaulted .input-wrapper { border-radius: var(--radius); }
 
+.income-streams { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+.income-streams .streams-title { font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); }
+.income-streams .streams-help { font-size: 0.78rem; color: var(--text-muted); margin: 4px 0 10px; line-height: 1.4; }
+.income-row { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px 8px; margin-bottom: 10px; background: var(--bg-input); }
+.income-row .form-grid { max-width: none; }
+.income-row .form-group input[type="text"] { padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 0.9rem; background: white; }
+.income-row .income-row-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+.income-row .income-row-desc { font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; }
+.income-row .remove-income { background: none; border: 1px solid var(--border); color: var(--accent-red); border-radius: var(--radius); padding: 4px 10px; font-size: 0.78rem; cursor: pointer; }
+.income-row .remove-income:hover { background: #fef2f2; }
+.add-income { padding: 8px 14px; border-radius: var(--radius); border: 1px dashed var(--accent-teal); background: white; color: var(--accent-teal); font-weight: 600; font-size: 0.85rem; cursor: pointer; }
+.add-income:hover { background: #f0fdfa; }
+
 /* "What matters most to you?" — two radio cards near the top of the form */
 .goal-choice { margin-top: 14px; }
 .goal-question { font-weight: 600; font-size: 0.95rem; margin-bottom: 8px; }
@@ -2333,7 +2346,7 @@ const SAMPLE_PROFILES = [
       grossIncome: 0,
       ssAnnualBenefit: 28000, ssStartAge: 67,
       spouseSsBenefit: 22000, spouseSsStartAge: 67,
-      pensionIncome: 0, annualSpending: 70000
+      incomeStreams: [], annualSpending: 70000
     }
   },
   { value: 'high-earner-early', label: 'High earner, early retiree, single',
@@ -2348,7 +2361,7 @@ const SAMPLE_PROFILES = [
       grossIncome: 250000,
       ssAnnualBenefit: 36000, ssStartAge: 67,
       spouseSsBenefit: '', spouseSsStartAge: 67,
-      pensionIncome: 0, annualSpending: 100000
+      incomeStreams: [], annualSpending: 100000
     }
   },
   { value: 'late-starter-60', label: 'Couple, 60, playing catch-up',
@@ -2363,7 +2376,7 @@ const SAMPLE_PROFILES = [
       grossIncome: 85000,
       ssAnnualBenefit: 24000, ssStartAge: 67,
       spouseSsBenefit: 18000, spouseSsStartAge: 67,
-      pensionIncome: 0, annualSpending: 55000
+      incomeStreams: [], annualSpending: 55000
     }
   },
   { value: 'widow-61', label: 'Widow, 61, survivor benefit available',
@@ -2380,7 +2393,7 @@ const SAMPLE_PROFILES = [
       spouseSsBenefit: '', spouseSsStartAge: 67,
       survivorBenefit: 30000, survivorBenefitType: 'fra', survivorStartAge: 67,
       lateSpouseStartAge: 67, lateSpouseBirthYear: '',
-      pensionIncome: 0, annualSpending: 60000
+      incomeStreams: [], annualSpending: 60000
     }
   },
   { value: 'affluent-near-rmd', label: 'Affluent couple nearing RMDs',
@@ -2395,7 +2408,8 @@ const SAMPLE_PROFILES = [
       grossIncome: 0,
       ssAnnualBenefit: 38000, ssStartAge: 67,
       spouseSsBenefit: 32000, spouseSsStartAge: 67,
-      pensionIncome: 24000, annualSpending: 120000
+      incomeStreams: [{ name: 'Pension', amount: 24000, owner: 'you', startAge: 62, endAge: '', cola: 'inflation', colaRate: '', taxable: 'full', taxablePercent: 100 }],
+      annualSpending: 120000
     }
   }
 ];
@@ -2413,11 +2427,30 @@ const INPUT_FIELD_PATHS = [
   'grossIncome', 'ssAnnualBenefit', 'ssStartAge',
   'spouseSsBenefit', 'spouseSsStartAge',
   'survivorBenefit', 'survivorBenefitType', 'survivorStartAge', 'lateSpouseStartAge', 'lateSpouseBirthYear',
-  'pensionIncome', 'annualSpending',
+  'incomeStreams', 'annualSpending',
   'preRetirementGrowth', 'rothGrowth', 'taxableGrowth', 'dividendYield',
   'inflationRate', 'bracketInflation', 'goal', 'heirTaxRate', 'targetBracket',
-  'customConversion', 'taxPaymentSource'
+  'customConversion', 'taxPaymentSource', 'convertWhileWorking'
 ];
+
+/* One row of the "Other income" list, in the form's own shape. */
+const INCOME_TAX_OPTIONS = [
+  { value: 'full', label: 'Fully taxable (pension, annuity, rental…)' },
+  { value: 'partial', label: 'Partly taxable (I’ll enter the taxable share)' },
+  { value: 'socialSecurity', label: 'Taxed like Social Security (SSDI, railroad tier 1)' }
+];
+const INCOME_COLA_OPTIONS = [
+  { value: 'inflation', label: 'Rises with inflation' },
+  { value: 'none', label: 'Stays the same (flat)' },
+  { value: 'custom', label: 'Rises by a set % each year' }
+];
+const makeIncomeStream = (over = {}) => ({
+  name: '', amount: '', owner: 'you', startAge: '', endAge: '', cola: 'inflation', colaRate: '', taxable: 'full', taxablePercent: 85, ...over
+});
+/* Older profiles had a single pension amount: one fully-taxable stream from retirement, rising with inflation. */
+const streamsFromPension = (pension, retirementAge) => Number(pension) > 0
+  ? [makeIncomeStream({ name: 'Pension', amount: Number(pension), startAge: retirementAge === '' || retirementAge == null ? '' : Number(retirementAge), taxablePercent: 100 })]
+  : [];
 
 /* What the optimizer ranks plans by. Profiles saved before this question
    existed have no goal, and ones from its first version say 'lifetimeTax';
@@ -2469,7 +2502,7 @@ const FIELD_LABELS = {
   survivorStartAge: 'Survivor Benefit Start Age',
   lateSpouseStartAge: 'Late Spouse Social Security Start Age',
   lateSpouseBirthYear: 'Late Spouse Year of Birth',
-  pensionIncome: 'Pension Income',
+  incomeStreams: 'Other Income',
   annualSpending: 'Annual Spending',
   preRetirementGrowth: 'Pre-Retirement Growth',
   rothGrowth: 'Roth Growth',
@@ -2481,7 +2514,8 @@ const FIELD_LABELS = {
   heirTaxRate: "Heirs' Tax Rate",
   targetBracket: 'Target Bracket',
   customConversion: 'Custom Conversion Amount',
-  taxPaymentSource: 'Tax Payment Source'
+  taxPaymentSource: 'Tax Payment Source',
+  convertWhileWorking: 'Convert While Still Working'
 };
 
 const makeDefaultInputs = () => ({
@@ -2509,7 +2543,7 @@ const makeDefaultInputs = () => ({
   survivorStartAge: 67,
   lateSpouseStartAge: 67,
   lateSpouseBirthYear: '',
-  pensionIncome: 0,
+  incomeStreams: [],
   annualSpending: '',
   preRetirementGrowth: 6,
   rothGrowth: 6,
@@ -2521,7 +2555,8 @@ const makeDefaultInputs = () => ({
   heirTaxRate: 24,
   targetBracket: 'auto',
   customConversion: 0,
-  taxPaymentSource: 'taxable'
+  taxPaymentSource: 'taxable',
+  convertWhileWorking: 'yes'
 });
 
 const PROFILE_STORAGE_KEY = 'roth-optimizer-profile';
@@ -2594,6 +2629,15 @@ const mergeInputsWithDefaults = (rawImported) => {
      hand-typed rate, so carry it over as an override; with a state picked the
      state's own brackets now apply. */
   const imported = { ...rawImported };
+  /* Older profiles had one pension amount instead of the income list. */
+  if (imported.incomeStreams === undefined && imported.pensionIncome !== undefined) {
+    imported.incomeStreams = streamsFromPension(imported.pensionIncome, imported.retirementAge);
+  }
+  if (Array.isArray(imported.incomeStreams)) {
+    imported.incomeStreams = imported.incomeStreams.filter(x => x && typeof x === 'object').map(x => makeIncomeStream(x));
+  }
+  if (imported.convertWhileWorking === true) imported.convertWhileWorking = 'yes';
+  if (imported.convertWhileWorking === false) imported.convertWhileWorking = 'no';
   if (imported.stateTaxRateOverride === undefined && imported.stateTaxRate !== undefined) {
     imported.stateTaxRateOverride = (!imported.stateAbbr || imported.stateAbbr === '--') && Number(imported.stateTaxRate) > 0
       ? Number(imported.stateTaxRate) : '';
@@ -2730,7 +2774,8 @@ function InputForm({ inputs, setInputs, onCalculate, rates, taxDataLine, validat
       bracketInflation: prev.bracketInflation,
       targetBracket: prev.targetBracket,
       customConversion: prev.customConversion,
-      taxPaymentSource: prev.taxPaymentSource
+      taxPaymentSource: prev.taxPaymentSource,
+      convertWhileWorking: prev.convertWhileWorking
     }));
   };
 
@@ -2865,7 +2910,8 @@ function InputForm({ inputs, setInputs, onCalculate, rates, taxDataLine, validat
     inputs.ssAnnualBenefit ? `SS: ${fmtCompact(inputs.ssAnnualBenefit)} at ${inputs.ssStartAge || 67}` : null,
     isMFJ && inputs.spouseSsBenefit ? `Spouse SS: ${fmtCompact(inputs.spouseSsBenefit)} at ${inputs.spouseSsStartAge || 67}` : null,
     isWidowed && inputs.survivorBenefit ? `Survivor SS: ${fmtCompact(inputs.survivorBenefit)} at ${inputs.survivorStartAge || 67}` : null,
-    inputs.pensionIncome > 0 ? `Pension: ${fmtCompact(inputs.pensionIncome)}` : null,
+    (inputs.incomeStreams || []).filter(x => Number(x.amount) > 0).length
+      ? `Other income: ${(inputs.incomeStreams || []).filter(x => Number(x.amount) > 0).map(x => `${x.name || 'income'} ${fmtCompact(x.amount)}`).join(', ')}` : null,
     inputs.annualSpending ? `Spending: ${fmtCompact(inputs.annualSpending)}` : null
   ].filter(Boolean);
   const incomeSummary = incomeParts.length ? incomeParts.join(' \u00B7 ') : 'None set';
@@ -2877,7 +2923,8 @@ function InputForm({ inputs, setInputs, onCalculate, rates, taxDataLine, validat
     inputs.dividendYield > 0 ? `Div: ${inputs.dividendYield}%` : null,
     `Inflation: ${inputs.inflationRate}%`,
     `Target: ${bracketLabel[inputs.targetBracket] || 'best'} bracket`,
-    inputs.customConversion > 0 ? `Custom: ${fmtCompact(inputs.customConversion)}/yr` : null
+    inputs.customConversion > 0 ? `Custom: ${fmtCompact(inputs.customConversion)}/yr` : null,
+    inputs.convertWhileWorking === 'no' ? 'No conversions while working' : null
   ].filter(Boolean).join(' \u00B7 ');
 
   const field = (label, fieldName, opts = {}) => {
@@ -2942,6 +2989,76 @@ function InputForm({ inputs, setInputs, onCalculate, rates, taxDataLine, validat
   const profileOptions = hasSavedProfile
     ? [{ value: 'my-profile', label: 'My Profile (saved in this browser)' }, ...SAMPLE_PROFILES]
     : SAMPLE_PROFILES;
+
+  /* ---- Other income: a list of streams (pension, disability, annuity...) ---- */
+  const streams = Array.isArray(inputs.incomeStreams) ? inputs.incomeStreams : [];
+  const setStreams = (next) => {
+    setEditedFields(prev => new Set(prev).add('incomeStreams'));
+    clearDefaultedPath('incomeStreams');
+    setInputs(prev => ({ ...prev, incomeStreams: next }));
+  };
+  const updateStream = (i, key, value) => setStreams(streams.map((x, j) => j === i ? { ...x, [key]: value } : x));
+  const addStream = () => setStreams([...streams, makeIncomeStream({ startAge: isRetired ? inputs.currentAge : (inputs.retirementAge || inputs.currentAge || '') })]);
+  const removeStream = (i) => setStreams(streams.filter((_, j) => j !== i));
+  const streamMessages = (i, key) => fieldMessages(`incomeStreams.${i}.${key}`);
+  const describeStream = (x) => {
+    const who = isMFJ && x.owner === 'spouse' ? 'your spouse\u2019s' : 'your';
+    const amt = Number(x.amount) > 0 ? fmt(Number(x.amount)) : 'an amount';
+    const from = x.startAge === '' || x.startAge == null ? 'now' : `${who === 'your' ? 'your' : 'their'} age ${x.startAge}`;
+    const to = x.endAge === '' || x.endAge == null ? 'for life' : `until ${who === 'your' ? 'your' : 'their'} age ${x.endAge}`;
+    const cola = x.cola === 'none' ? 'flat' : x.cola === 'custom' ? `rising ${x.colaRate || 0}% a year` : 'rising with inflation';
+    const tax = x.taxable === 'partial' ? `${x.taxablePercent === '' ? '?' : x.taxablePercent}% taxable` : x.taxable === 'socialSecurity' ? 'taxed like Social Security' : 'fully taxable';
+    return `${amt} a year of ${who} income from ${from}, ${to}, ${cola}, ${tax}.`;
+  };
+  const streamField = (i, key, label, opts = {}) => {
+    const x = streams[i];
+    const messages = streamMessages(i, key);
+    const hasError = messages.some(m => m.level === 'error');
+    const cls = `form-group${hasError ? ' field-error' : ''}`;
+    const extras = [
+      opts.help && React.createElement('small', { key: 'help', className: 'field-help' }, opts.help),
+      ...messages.map((m, k) => React.createElement('small', { key: `m${k}`, className: m.level === 'error' ? 'field-error-text' : 'field-warning-text' }, m.message))
+    ];
+    let control;
+    if (opts.type === 'select') {
+      control = React.createElement('select', { value: x[key], onChange: (e) => updateStream(i, key, e.target.value) },
+        opts.options.map(o => React.createElement('option', { key: o.value, value: o.value }, o.label)));
+    } else if (opts.type === 'text') {
+      control = React.createElement('input', { type: 'text', value: x[key] || '', placeholder: opts.placeholder || '', maxLength: 60, onChange: (e) => updateStream(i, key, e.target.value) });
+    } else {
+      const parse = (raw) => raw === '' ? '' : (isFinite(parseFloat(raw)) ? parseFloat(raw) : '');
+      const inputEl = React.createElement('input', { type: 'number', value: x[key] === undefined || x[key] === null ? '' : x[key], placeholder: opts.placeholder || '', min: opts.min, max: opts.max, step: opts.step || '1', onChange: (e) => updateStream(i, key, parse(e.target.value)) });
+      control = opts.prefix || opts.suffix
+        ? React.createElement('div', { className: `input-wrapper${opts.prefix ? ' has-prefix' : ''}${opts.suffix ? ' has-suffix' : ''}` },
+            opts.prefix && React.createElement('span', { className: 'input-prefix' }, '$'), inputEl, opts.suffix && React.createElement('span', { className: 'input-suffix' }, '%'))
+        : inputEl;
+    }
+    return React.createElement('div', { className: cls, key: `${i}-${key}` }, React.createElement('label', null, label), control, ...extras);
+  };
+  const incomeStreamsBlock = React.createElement('div', { className: `income-streams${isDefaulted('incomeStreams') ? ' field-defaulted' : ''}` },
+    React.createElement('div', { className: 'streams-title' }, 'Other income (pension, disability, annuity, rental\u2026)'),
+    React.createElement('div', { className: 'streams-help' },
+      'Anything other than wages, Social Security and your accounts. Today\u2019s dollars a year, before tax. Each row has its own start and stop ages (the owner\u2019s), cost-of-living increase and tax treatment. SSDI: enter it here, taxed like Social Security, stopping at full retirement age, and enter the same amount as that person\u2019s Social Security benefit starting at full retirement age.'),
+    ...streams.map((x, i) => React.createElement('div', { className: 'income-row', key: i },
+      React.createElement('div', { className: 'form-grid' },
+        streamField(i, 'name', 'What is it?', { type: 'text', placeholder: 'e.g. Pension, Long-term disability' }),
+        streamField(i, 'amount', 'Yearly amount (today\u2019s dollars)', { prefix: '$', min: 0 }),
+        isMFJ && streamField(i, 'owner', 'Whose income?', { type: 'select', options: [{ value: 'you', label: 'Mine' }, { value: 'spouse', label: 'My spouse\u2019s' }] }),
+        streamField(i, 'startAge', 'Starts at age', { min: 0, max: 120, placeholder: 'blank = already paid', help: `${isMFJ && x.owner === 'spouse' ? 'Your spouse\u2019s' : 'Your'} age when it starts. Leave blank if it is being paid now.` }),
+        streamField(i, 'endAge', 'Stops at age', { min: 0, max: 121, placeholder: 'blank = for life', help: 'The first age it is no longer paid (e.g. 65 for disability insurance). Blank means it lasts for life.' }),
+        streamField(i, 'cola', 'Each year it\u2026', { type: 'select', options: INCOME_COLA_OPTIONS }),
+        x.cola === 'custom' && streamField(i, 'colaRate', 'Yearly increase', { suffix: '%', min: 0, max: 15, step: '0.1' }),
+        streamField(i, 'taxable', 'How is it taxed?', { type: 'select', options: INCOME_TAX_OPTIONS,
+          help: x.taxable === 'socialSecurity' ? 'Added to Social Security: up to 85% is taxable, by the same formula, and your state treats it like Social Security.' : undefined }),
+        x.taxable === 'partial' && streamField(i, 'taxablePercent', 'Taxable share', { suffix: '%', min: 0, max: 100, help: 'The part that counts as income. E.g. 85% if you paid 15% of a disability premium with after-tax money; the rest is tax-free.' })
+      ),
+      React.createElement('div', { className: 'income-row-foot' },
+        React.createElement('div', { className: 'income-row-desc' }, describeStream(x)),
+        React.createElement('button', { type: 'button', className: 'remove-income', onClick: () => removeStream(i) }, 'Remove')
+      )
+    )),
+    React.createElement('button', { type: 'button', className: 'add-income', onClick: addStream }, '+ Add income')
+  );
 
   const bannerEl = importBanner && React.createElement('div', { className: 'import-banner' },
     React.createElement('h4', null, 'Import complete'),
@@ -3147,10 +3264,10 @@ function InputForm({ inputs, setInputs, onCalculate, rates, taxDataLine, validat
             help: `62 to 70. Starting before their full retirement age limits your survivor benefit to at least ${survivorFloorPct} of their full amount.` }),
           isWidowed && !survivorCollecting && lateSpouseHadStarted && field('Late spouse\u2019s year of birth', 'lateSpouseBirthYear', { min: 1900, max: 2030, placeholder: 'same as yours',
             help: 'Sets their full retirement age, which decides whether they started early or late.' }),
-          field('Pension / Other Income', 'pensionIncome', { min: 0, prefix: '$', help: 'Starts when you retire; assumed to rise with inflation.' }),
           field('Yearly Spending in Retirement', 'annualSpending', { min: 0, prefix: '$', placeholder: '~70-80% of income',
             help: 'Today\u2019s dollars, before taxes. We add the taxes on top.' })
-        )
+        ),
+        incomeStreamsBlock
       )
     ),
 
@@ -3195,6 +3312,13 @@ function InputForm({ inputs, setInputs, onCalculate, rates, taxDataLine, validat
               ]
             }),
             field('Custom Annual Conversion', 'customConversion', { min: 0, prefix: '$', help: 'Optional: compare a fixed yearly amount too (today’s dollars; it rises with inflation).' }),
+            !isRetired && field('Convert while still working?', 'convertWhileWorking', {
+              type: 'select',
+              options: [
+                { value: 'yes', label: 'Yes \u2014 if it helps (recommended)' },
+                { value: 'no', label: 'No \u2014 only after I retire' }
+              ],
+              help: 'A conversion in a working year is taxed on top of your wages and other income that year; the extra tax is paid from your taxable account (or withheld from the conversion). The plan only converts while working when that comes out ahead.' }),
             field('Tax Payment Source', 'taxPaymentSource', {
               type: 'select',
               options: [
@@ -3381,6 +3505,21 @@ function PlainSummary({ result, summary: s, inputs, rates, inflationRate, onAppl
   }
 
   const notes = [];
+  if (s.workingConversionYears > 0) {
+    const n = s.workingConversionYears;
+    notes.push({ text: `${n === s.conversionYears ? 'All' : n} of the conversion${n === 1 ? '' : 's'} ${n === 1 ? 'happens' : 'happen'} while you are still working. Each is taxed on top of your wages and other income that year; the extra tax is paid ${inputs.taxPaymentSource === 'conversion' ? 'by withholding it from the conversion' : 'from your taxable account'}, while your paycheck covers the rest as usual. Choose “No — only after I retire” under Conversion Strategy to rule this out.` });
+  }
+  const streamsIn = (inputs.incomeStreams || []).filter(x => Number(x.amount) > 0);
+  if (streamsIn.length) {
+    const who = (x) => inputs.filingStatus === 'marriedFilingJointly' && x.owner === 'spouse' ? 'your spouse’s' : 'your';
+    const their = (x) => inputs.filingStatus === 'marriedFilingJointly' && x.owner === 'spouse' ? 'their' : 'your';
+    const phrase = (x) => `${x.name || 'income'}: ${fmt(Number(x.amount))} a year of ${who(x)} income` +
+      (x.startAge === '' || x.startAge == null ? ' from now' : ` from ${their(x)} age ${x.startAge}`) +
+      (x.endAge === '' || x.endAge == null ? '' : ` until ${their(x)} age ${x.endAge}`) +
+      (x.cola === 'none' ? ', flat' : x.cola === 'custom' ? `, rising ${x.colaRate || 0}% a year` : ', rising with inflation') +
+      (x.taxable === 'partial' ? ` (${x.taxablePercent}% taxable)` : x.taxable === 'socialSecurity' ? ' (taxed like Social Security)' : ' (fully taxable)');
+    notes.push({ text: `Other income counted: ${streamsIn.map(phrase).join('; ')}. It is taxed in the years it is paid, and once you retire it pays for spending before your accounts do.` });
+  }
   const runOut = s.runsOutAgeB
     ? `Your savings may run out at about age ${s.runsOutAgeB}${s.runsOutAgeA && s.runsOutAgeA !== s.runsOutAgeB ? ` (age ${s.runsOutAgeA} without converting)` : ''}, before the end of the plan at age ${s.finalAge}. That matters more than any conversion strategy \u2014 consider spending less, working longer, or delaying Social Security.`
     : null;
@@ -3565,7 +3704,10 @@ function YearMath({ result, rates }) {
   );
   const section = (title) => React.createElement('tr', { className: 'math-section' }, React.createElement('td', { colSpan: 2 }, title));
   const iraTotal = r.rmd + r.conversionAmount + r.tradWithdrawal;
-  const cash = r.rmd + r.ssIncome + r.pension;
+  const cash = r.rmd + r.ssIncome + r.pension + (r.otherIncomeTaxFree || 0);
+  const streamRows = (r.incomeStreams || []).filter(x => x.taxable !== 'socialSecurity');
+  const ssLike = (r.incomeStreams || []).filter(x => x.taxable === 'socialSecurity');
+  const payingSection = !r.working || r.conversionAmount > 0;
 
   return React.createElement('div', { className: 'card' },
     React.createElement('h2', null, 'Show the math'),
@@ -3582,12 +3724,12 @@ function YearMath({ result, rates }) {
       React.createElement('tbody', null,
         section('1. Income'),
         r.wages > 0 && row('Wages (after pre-tax 401(k)/HSA contributions)', r.wages),
-        r.pension > 0 && row('Pension / other income', r.pension),
+        ...streamRows.map((x, i) => row(`${x.name}${x.taxable === 'partial' ? ` (${x.taxablePercent}% of ${fmt(x.amount)} is taxable)` : ''}`, x.taxablePart)),
         iraTotal > 0 && row(`Traditional IRA/401(k) withdrawals (RMD ${fmt(r.rmd)} + conversion ${fmt(r.conversionAmount)} + extra ${fmt(r.tradWithdrawal)})`, iraTotal),
         r.hsaWithdrawal > 0 && row('HSA withdrawals (non-medical)', r.hsaWithdrawal),
         r.dividendIncome > 0 && row('Dividends (taxable account)', r.dividendIncome),
         r.realizedCapGains > 0 && row('Capital gains from selling taxable investments', r.realizedCapGains),
-        r.ssIncome > 0 && row(`Social Security ${fmt(r.ssIncome)}${r.ssSource === 'survivor' ? ' (survivor benefit' + (r.ssIncome > r.ssSurvivor + 0.5 ? ' + spouse' : '') + ')' : ''} — taxable part`, t.taxableSS),
+        r.ssIncome > 0 && row(`Social Security ${fmt(r.ssIncome)}${r.ssSource === 'survivor' ? ' (survivor benefit' + (r.ssIncome > r.ssSurvivor + 0.5 ? ' + spouse' : '') + ')' : ''}${ssLike.length ? ` (incl. ${ssLike.map(x => `${x.name} ${fmt(x.amount)}`).join(', ')}, taxed the same way)` : ''} — taxable part`, t.taxableSS),
         row('Adjusted gross income (AGI)', t.agi, { total: true }),
         section('2. Deductions'),
         row(`Standard deduction${r.age >= 65 ? ' (incl. extra for age 65+)' : ''}`, -t.stdDeduction),
@@ -3610,17 +3752,19 @@ function YearMath({ result, rates }) {
         r.hsaPenalty > 0 && row('20% HSA penalty (before 65)', r.hsaPenalty),
         row('Total tax this year', r.totalTax, { total: true }),
         row('Top federal bracket reached', pct(r.marginalRate), { raw: true, sub: true }),
-        !r.working && section('5. Paying for the year'),
-        !r.working && row('Spending goal', r.spendingTarget),
-        !r.working && row('+ taxes', r.totalTax),
-        !r.working && cash > 0 && row('− Social Security, pension and RMD cash', -cash),
-        !r.working && r.taxFromConversion > 0 && row('− tax withheld from the conversion', -r.taxFromConversion),
-        !r.working && r.taxableWithdrawal > 0 && row('Taken from taxable account', r.taxableWithdrawal, { sub: true }),
-        !r.working && r.rothWithdrawal > 0 && row('Taken from Roth', r.rothWithdrawal, { sub: true }),
-        !r.working && r.tradWithdrawal > 0 && row('Taken from traditional IRA/401(k)', r.tradWithdrawal, { sub: true }),
-        !r.working && r.hsaWithdrawal > 0 && row('Taken from HSA', r.hsaWithdrawal, { sub: true }),
-        !r.working && r.surplusReinvested > 0 && row('Extra cash reinvested in taxable account', r.surplusReinvested, { sub: true }),
-        !r.working && r.unmetSpending > 0 && row('Shortfall — not enough savings', r.unmetSpending, { total: true })
+        payingSection && section(r.working ? '5. Paying the conversion tax while working' : '5. Paying for the year'),
+        payingSection && !r.working && row('Spending goal', r.spendingTarget),
+        payingSection && !r.working && row('+ taxes', r.totalTax),
+        payingSection && r.working && row('Taxes this year', r.totalTax),
+        payingSection && r.working && row('− covered by your paycheck (the tax there would be without a conversion)', -r.paycheckTax),
+        payingSection && !r.working && cash > 0 && row('− Social Security, other income and RMD cash', -cash),
+        payingSection && r.taxFromConversion > 0 && row('− tax withheld from the conversion', -r.taxFromConversion),
+        payingSection && r.taxableWithdrawal > 0 && row('Taken from taxable account', r.taxableWithdrawal, { sub: true }),
+        payingSection && r.rothWithdrawal > 0 && row('Taken from Roth', r.rothWithdrawal, { sub: true }),
+        payingSection && r.tradWithdrawal > 0 && row('Taken from traditional IRA/401(k)', r.tradWithdrawal, { sub: true }),
+        payingSection && r.hsaWithdrawal > 0 && row('Taken from HSA', r.hsaWithdrawal, { sub: true }),
+        payingSection && r.surplusReinvested > 0 && row('Extra cash reinvested in taxable account', r.surplusReinvested, { sub: true }),
+        payingSection && r.unmetSpending > 0 && row('Shortfall — not enough savings', r.unmetSpending, { total: true })
       )
     )
   );
@@ -3708,7 +3852,7 @@ function ProjectionTable({ data, label, showReal, inflationRate }) {
     { name: 'Extra Trad. Wdl', tip: 'Extra withdrawals from Traditional accounts to pay for spending once the taxable account and Roth are used up (taxable income; 10% penalty before 59\u00BD)' },
     { name: 'Dividends', tip: 'Dividend distributions from the taxable brokerage account, based on the dividend yield assumption' },
     { name: 'Cap Gains', tip: 'Realized capital gains from taxable account withdrawals, calculated using the cost-basis ratio' },
-    { name: 'Soc. Sec.', tip: 'Social Security received this year: yours (the larger of your own benefit and any survivor benefit) plus your spouse\u2019s while alive. "S" marks a year in which a survivor benefit is paid' },
+    { name: 'Soc. Sec.', tip: 'Social Security received this year: yours (the larger of your own benefit and any survivor benefit) plus your spouse\u2019s while alive, plus any other income taxed like Social Security (e.g. SSDI). "S" marks a year in which a survivor benefit is paid' },
     { name: 'Fed Taxable Inc.', tip: 'Federal taxable income after the standard and senior deductions, including dividends and capital gains (which are taxed at their own lower rates)' },
     { name: 'Fed Tax', tip: 'Federal income tax on ordinary income (does not include capital gains tax or NIIT)' },
     { name: 'State Tax', tip: 'State income tax based on your selected state' },
@@ -4170,7 +4314,7 @@ function KeyAssumptions({ rates }) {
     `Tax figures: ${y} federal brackets, deductions, capital-gains brackets, Medicare IRMAA and state brackets from data/rates.json (see Sources). Future years are indexed with your "bracket inflation" rate; NIIT and Social Security thresholds are fixed by law and are not indexed.`,
     'Spending is paid first from Social Security, pensions and RMDs, then from the taxable account. In the no-conversion baseline the traditional IRA/401(k) is drawn next once withdrawals are penalty-free (59½), then the Roth, then the HSA — the usual order. Conversion plans fill the target bracket with the conversion, so they draw the Roth next (contributions, then conversions oldest first, then earnings), then extra traditional withdrawals, then the HSA. Before 59½ every plan draws the Roth before the traditional account. Extra cash (e.g. large RMDs) is reinvested in the taxable account.',
     'Taxes are added to spending and paid the same way, unless you choose to pay conversion tax from the converted amount (withholding), which reduces what reaches the Roth and counts as an early distribution before 59½.',
-    'Optimized strategy: each retired year, convert enough to fill ordinary taxable income to the top of the target bracket. In "let the calculator choose" mode every bracket from 10% to 35% is tried, each with and without staying $1,000 under the next Medicare IRMAA threshold. No conversions are made while working.',
+    'Optimized strategy: each year, convert enough to fill ordinary taxable income to the top of the target bracket. In "let the calculator choose" mode every bracket from 10% to 35% is tried, each with and without staying $1,000 under the next Medicare IRMAA threshold. In a working year the conversion stacks on wages and all other income of that year, so only the room left under the bracket is converted; its extra tax (the difference from the year’s tax without a conversion) is paid from the taxable account, then the Roth, then the traditional account and the HSA, or withheld from the conversion, and the paycheck covers the rest as usual. Working-year conversions are tried unless you turn them off, and a plan converts while working only when that comes out ahead.',
     'Goal “Keep the most for myself” (the default): the plan with the most spendable wealth at the end of the projection, in today’s dollars. Spendable wealth = Roth + HSA + taxable account + traditional balance − the drawdown tax: the extra federal and state income tax, capital-gains tax, NIIT and Medicare IRMAA the owner (or the surviving spouse, at their filing status) would pay taking the traditional balance and the taxable account’s unrealized gains out in equal parts over 10 years, on top of that year’s Social Security, pension and dividends, using that year’s indexed brackets, deductions and thresholds. It is a valuation, not a spending plan: it counts the growth given up by paying tax early as well as the tax saved later. Guard: a plan that leaves spending unpaid is never chosen over one that leaves less unpaid, whatever it ends with. Ties go to the less aggressive plan (lower bracket; staying under the IRMAA threshold before ignoring it).',
     'Goal “Leave the most to my heirs”: the plan with the largest after-tax wealth at the end of the projection, minus any unpaid spending. After-tax wealth: Roth + taxable + (traditional + HSA) × (1 − heirs’ tax rate). Taxable accounts get a stepped-up basis at death, so no capital-gains tax is charged on them. Profiles saved before the goal question existed load with “Keep the most for myself”.',
     'Federal tax: ordinary income through the brackets; qualified dividends and long-term gains stacked on top at 0/15/20%, with any unused standard deduction applied to them first; 3.8% NIIT on the lesser of investment income or MAGI over the threshold.',
@@ -4183,7 +4327,8 @@ function KeyAssumptions({ rates }) {
     'Growth: the growth rate is a total return. In the taxable account the dividend yield is part of that return, taxed each year and reinvested; cost basis uses the average-cost method.',
     'State tax: federal AGI, less taxable Social Security in states that don’t tax it (Colorado taxes it only for people under 65: each person’s benefits are left out from age 65) and retirement income the state exempts (Pennsylvania and Mississippi: IRA/401(k) withdrawals from 59½ plus Roth conversions and pensions; Illinois: all of them at any age), minus the state’s own standard deduction and personal exemptions, taxed at your state’s brackets (or your flat override); personal exemption credits come off the tax. With a flat override and no state picked, the rate applies to federal taxable income.',
     'State tax limits: partial retirement-income exclusions and credits in other states (e.g. New York’s $20,000 pension and annuity exclusion, Georgia’s retirement exclusion, New Jersey’s pension exclusion) are not modeled, so those states’ tax may be overstated. Also not modeled: income phase-outs of state deductions and exemptions (e.g. Connecticut), extra state deductions for age 65+, other state income adjustments, and local income taxes.',
-    'Working years: salary minus pre-tax 401(k)/HSA contributions is taxed; contributions go into the accounts. Pension income starts at retirement and rises with inflation.',
+    'Working years: salary minus pre-tax 401(k)/HSA contributions is taxed; contributions go into the accounts. Salary is assumed to cover spending and its own tax, so no cash flows other than a conversion’s extra tax are modeled while working; other income paid in those years is taxed but not saved.',
+    'Other income: each stream is paid from its owner’s start age until the age it stops (or for life; a spouse’s stream also ends at the spouse’s projected death), grown from today’s dollars at its own rate (inflation, flat, or a set %). Fully taxable streams are ordinary income; a partly taxable stream counts its taxable share as ordinary income and the rest as tax-free cash; a stream taxed like Social Security is added to that person’s Social Security (taxable by the same up-to-85% formula, treated like Social Security by the state). Once retired, this income pays for spending before the accounts do; it also enters the end-of-plan valuation the way Social Security and pensions do.',
     'Survivor: after your spouse’s life expectancy you file as Single, and a survivor benefit on their record is available from the next year (starting at your survivor start age, or 60, if later). If they had not started Social Security, their benefit at death (with delayed credits past full retirement age) is used. The model assumes you outlive your spouse; if your spouse is expected to live longer, the projection runs to their life expectancy with you still alive.',
     'Claiming suggestion: when a survivor benefit is in play, every whole-year pair of survivor (60–70) and own (62–70) start ages still open to you is valued as the benefits it pays through life expectancy, discounted at your investment growth rate (today’s dollars, before taxes); a pair paying more than $500 over the ages you entered is suggested, never applied on its own. Married couples get it only when the projected death comes before 70.',
     'Not modeled: ACA premium credits, AMT, itemized deductions, head-of-household status, estate taxes, qualified charitable distributions, and exact IRS rounding of indexed amounts.'

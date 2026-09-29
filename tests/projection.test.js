@@ -19,7 +19,7 @@ function assertConservation(inputs, rows) {
         + prev.taxBal * n.taxableGrowth / 100 + prev.hsaBal * n.preRetirementGrowth / 100;
       const before = prev.tradBal + prev.rothBal + prev.taxBal + prev.hsaBal;
       const after = r.tradBal + r.rothBal + r.taxBal + r.hsaBal;
-      const expected = growth + r.ssIncome + r.pension - r.spendingTarget - r.totalTax + r.unmetSpending;
+      const expected = growth + r.ssIncome + r.pension + r.otherIncomeTaxFree - r.spendingTarget - r.totalTax + r.unmetSpending;
       assert.ok(Math.abs((after - before) - expected) < 5 + 1e-6 * before,
         `age ${r.age}: assets moved ${after - before}, expected ${expected}`);
     }
@@ -104,11 +104,12 @@ test('optimized strategy fills ordinary income up to the target bracket', () => 
   assert.ok(withSS[0].taxableSS > 0);
 });
 
-test('no conversions while working, and pre-tax contributions reduce taxable wages', () => {
-  const inp = baseInputs({ currentAge: 50, retirementAge: 55, grossIncome: 150000, annualContributions: { traditional: 20000, roth: 0, taxable: 5000, hsa: 4000 } });
+test('working-year conversions can be turned off, and pre-tax contributions reduce taxable wages', () => {
+  const inp = baseInputs({ currentAge: 50, retirementAge: 55, grossIncome: 150000, annualContributions: { traditional: 20000, roth: 0, taxable: 5000, hsa: 4000 }, convertWhileWorking: 'no' });
   const rows = run(inp, 'optimized', { targetBracketRate: 0.24 });
   assert.equal(rows[0].working, true);
   assert.equal(rows[0].conversionAmount, 0);
+  assert.equal(rows[0].paycheckTax, rows[0].totalTax, 'the paycheck covers the whole tax');
   assert.equal(rows[0].agi, 126000);
   near(assert, rows[0].taxableIncome, 126000 - 16100);
   assert.equal(rows[5].working, false);

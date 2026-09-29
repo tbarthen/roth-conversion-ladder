@@ -908,6 +908,48 @@ const toNum = (v) => {
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const orDefault = (v, d) => (isNaN(v) ? d : v);
 
+const INCOME_TAX_KINDS = ['full', 'partial', 'socialSecurity'];
+
+/**
+ * Other income (pensions, disability, annuities, rental...) as a list of
+ * streams. Each: { name, amount (today's dollars a year), owner ('you' |
+ * 'spouse'), startAge, endAge (the first age it is no longer paid; null =
+ * for life), cola ('inflation' | 'none' | 'custom' with colaRate %, or a
+ * number), taxable ('full' | 'partial' with taxablePercent | 'socialSecurity',
+ * i.e. taxed like Social Security). Ages are the owner's. Older profiles had a
+ * single pensionIncome: it becomes one fully-taxable stream starting at
+ * retirement and rising with inflation, which is what it always did.
+ */
+function normalizeIncomeStreams(r, { retirementAge, isMFJ, inflationRate }) {
+  const money = (v, max = 1e7) => clamp(orDefault(toNum(v), 0), 0, max);
+  let list = Array.isArray(r.incomeStreams) ? r.incomeStreams : null;
+  if (list === null) {
+    const pension = money(r.pensionIncome);
+    list = pension > 0 ? [{ name: 'Pension', amount: pension, owner: 'you', startAge: retirementAge, endAge: '', cola: 'inflation', taxable: 'full' }] : [];
+  }
+  return list.filter(isObj).map((x, i) => {
+    const startAge = clamp(Math.round(orDefault(toNum(x.startAge), 0)), 0, 120);
+    const endRaw = toNum(x.endAge);
+    const endAge = isNaN(endRaw) ? null : clamp(Math.round(endRaw), 0, 121);
+    let colaRate;
+    if (typeof x.cola === 'number' && isFinite(x.cola)) colaRate = clamp(x.cola, 0, 15);
+    else if (x.cola === 'none') colaRate = 0;
+    else if (x.cola === 'custom') colaRate = clamp(orDefault(toNum(x.colaRate), inflationRate), 0, 15);
+    else colaRate = inflationRate;
+    const taxable = INCOME_TAX_KINDS.includes(x.taxable) ? x.taxable : 'full';
+    return {
+      name: typeof x.name === 'string' && x.name.trim() ? x.name.trim().slice(0, 60) : `Income ${i + 1}`,
+      amount: money(x.amount),
+      owner: x.owner === 'spouse' && isMFJ ? 'spouse' : 'you',
+      startAge,
+      endAge: endAge !== null && endAge > startAge ? endAge : null,
+      colaRate,
+      taxable,
+      taxablePercent: taxable === 'partial' ? clamp(orDefault(toNum(x.taxablePercent), 85), 0, 100) : 100
+    };
+  }).filter(x => x.amount > 0);
+}
+
 /**
  * Turn raw form inputs (strings/blank allowed) into clean numbers.
  * Never throws; out-of-range values are clamped. Use validateInputs() to
@@ -916,6 +958,8 @@ const orDefault = (v, d) => (isNaN(v) ? d : v);
 function normalizeInputs(raw, td) {
   const r = raw || {};
   const currentAge = clamp(Math.round(orDefault(toNum(r.currentAge), 60)), 18, 110);
+  const retirementAge = clamp(Math.round(orDefault(toNum(r.retirementAge), currentAge)), 18, 110);
+  const inflationRate = clamp(orDefault(toNum(r.inflationRate), 2.5), 0, 15);
   const filingStatus = FILING_STATUSES.includes(r.filingStatus) ? r.filingStatus : 'single';
   const isMFJ = filingStatus === 'marriedFilingJointly';
   const spouseAgeNum = toNum(r.spouseAge);
@@ -944,7 +988,7 @@ function normalizeInputs(raw, td) {
   const lateBirth = toNum(r.lateSpouseBirthYear);
   return {
     currentAge,
-    retirementAge: clamp(Math.round(orDefault(toNum(r.retirementAge), currentAge)), 18, 110),
+    retirementAge,
     lifeExpectancy: clamp(Math.round(orDefault(toNum(r.lifeExpectancy), 90)), currentAge + 1, 120),
     filingStatus,
     spouseAge,
@@ -980,13 +1024,15 @@ function normalizeInputs(raw, td) {
     lateSpouseBirthYear: isNaN(lateBirth) ? null : clamp(Math.round(lateBirth), 1900, 2100),
     survivorStartAge,
     survivorAlreadyCollecting: widowed && survivorStartAge < currentAge,
-    pensionIncome: money(r.pensionIncome, 1e7),
+    incomeStreams: normalizeIncomeStreams(r, { retirementAge, isMFJ, inflationRate }),
+    /* Conversions in working years stack on wages; on unless turned off */
+    convertWhileWorking: !(r.convertWhileWorking === false || r.convertWhileWorking === 'no'),
     annualSpending: money(r.annualSpending, 1e7),
     preRetirementGrowth: pct(r.preRetirementGrowth, 6, -10, 30),
     rothGrowth: pct(r.rothGrowth, orDefault(toNum(r.preRetirementGrowth), 6), -10, 30),
     taxableGrowth: pct(r.taxableGrowth, orDefault(toNum(r.preRetirementGrowth), 6), -10, 30),
     dividendYield: pct(r.dividendYield, 0, 0, 10),
-    inflationRate: pct(r.inflationRate, 2.5, 0, 15),
+    inflationRate,
     bracketInflation: pct(r.bracketInflation, 2.5, 0, 15),
     heirTaxRate: pct(r.heirTaxRate, 24, 0, 60),
     /* Saved profiles from before the goal question have none, and ones from
@@ -1042,6 +1088,31 @@ function validateInputs(raw, td) {
   if (widowed || r.filingStatus === 'marriedFilingJointly') {
     survivorStart = num('survivorStartAge', 'survivor benefit start age', { min: 60, max: 70, integer: true });
   }
+  if (Array.isArray(r.incomeStreams)) {
+    r.incomeStreams.forEach((x, i) => {
+      if (!x || typeof x !== 'object') return;
+      const label = typeof x.name === 'string' && x.name.trim() ? x.name.trim() : `income ${i + 1}`;
+      const f = (k) => `incomeStreams.${i}.${k}`;
+      const amt = Number(x.amount);
+      if (!blank(x.amount) && (!isFinite(amt) || amt < 0 || amt > 1e7)) E(f('amount'), `${label}: the yearly amount must be between 0 and 10,000,000.`);
+      const st = blank(x.startAge) ? NaN : Number(x.startAge);
+      if (!blank(x.startAge) && (!isFinite(st) || st < 0 || st > 120)) E(f('startAge'), `${label}: the start age must be between 0 and 120.`);
+      if (!blank(x.endAge)) {
+        const en = Number(x.endAge);
+        if (!isFinite(en) || en < 0 || en > 121) E(f('endAge'), `${label}: the age it stops must be between 0 and 121.`);
+        else if (isFinite(st) && en <= st) E(f('endAge'), `${label}: the age it stops must be after the age it starts.`);
+      }
+      if (x.taxable === 'partial' && !blank(x.taxablePercent)) {
+        const pc = Number(x.taxablePercent);
+        if (!isFinite(pc) || pc < 0 || pc > 100) E(f('taxablePercent'), `${label}: the taxable share must be between 0% and 100%.`);
+      }
+      if (x.cola === 'custom' && !blank(x.colaRate)) {
+        const cr = Number(x.colaRate);
+        if (!isFinite(cr) || cr < 0 || cr > 15) E(f('colaRate'), `${label}: the yearly increase must be between 0% and 15%.`);
+      }
+      if (x.owner === 'spouse' && r.filingStatus !== 'marriedFilingJointly') W(f('owner'), `${label} is marked as your spouse's, but you are not filing jointly, so we treat it as yours.`);
+    });
+  }
   num('stateTaxRateOverride', 'state tax rate', { min: 0, max: 20 });
   num('preRetirementGrowth', 'growth rate', { min: -10, max: 30 });
   num('rothGrowth', 'Roth growth rate', { min: -10, max: 30 });
@@ -1080,6 +1151,40 @@ function validateInputs(raw, td) {
     }
   }
   return { errors, warnings };
+}
+
+/**
+ * Other income paid in one projection year. ctx: { age, sAge, spouseAlive,
+ * startYear, year }. A stream is paid while its owner's age is at or past
+ * startAge and below endAge (a spouse's stream also only while they are
+ * alive), grown from today's dollars at its own cost-of-living rate.
+ * Returns { taxable, taxFree, ssOwn, ssSpouse, total, items }: taxable is
+ * ordinary income (fully-taxable streams and the taxable share of partly-
+ * taxable ones), taxFree the rest of those, ssOwn/ssSpouse the streams taxed
+ * like Social Security (added to the benefits, by owner).
+ */
+function incomeStreamsAt(inp, ctx) {
+  const out = { taxable: 0, taxFree: 0, ssOwn: 0, ssSpouse: 0, total: 0, items: [] };
+  for (const st of inp.incomeStreams || []) {
+    const spouse = st.owner === 'spouse';
+    if (spouse && (!ctx.spouseAlive || ctx.sAge === null || ctx.sAge === undefined)) continue;
+    const ownerAge = spouse ? ctx.sAge : ctx.age;
+    if (ownerAge < st.startAge || (st.endAge !== null && ownerAge >= st.endAge)) continue;
+    const amount = indexAmount(st.amount, ctx.startYear, ctx.year, st.colaRate / 100);
+    if (!(amount > 0)) continue;
+    let taxablePart;
+    if (st.taxable === 'socialSecurity') {
+      if (spouse) out.ssSpouse += amount; else out.ssOwn += amount;
+      taxablePart = null;
+    } else {
+      taxablePart = st.taxable === 'partial' ? amount * st.taxablePercent / 100 : amount;
+      out.taxable += taxablePart;
+      out.taxFree += amount - taxablePart;
+    }
+    out.total += amount;
+    out.items.push({ name: st.name, owner: st.owner, amount, taxablePart, taxable: st.taxable, taxablePercent: st.taxablePercent });
+  }
+  return out;
 }
 
 /* ============================================================
@@ -1187,11 +1292,15 @@ function runProjection(rawInputs, scenario, opts, td) {
     /* 5. Income */
     const salary = working ? inp.grossIncome : 0;
     const wages = Math.max(0, salary - pretax);
-    const pension = working ? 0 : indexAmount(inp.pensionIncome, startYear, year, infl);
+    /* Other income streams (pension, disability...). The fully taxable part
+       is ordinary income ("pension" below); streams taxed like Social
+       Security join the benefits of their owner. */
+    const other = incomeStreamsAt(inp, { age, sAge, spouseAlive, startYear, year });
+    const pension = other.taxable;
     /* The user's benefit is the larger of their own and any survivor benefit
        (a late spouse's record, or the spouse's after the projected death). */
     const ss = ssPlan.at(k);
-    const ownSs = ss.paid, spouseSs = ss.spouse;
+    const ownSs = ss.paid + other.ssOwn, spouseSs = ss.spouse + other.ssSpouse;
     const ssIncome = ownSs + spouseSs;
     /* A state that taxes Social Security but leaves out each person's benefits
        from an age (Colorado, 65): the share of this year's benefits that is out. */
@@ -1243,6 +1352,16 @@ function runProjection(rawInputs, scenario, opts, td) {
        taxable income, which changes the tax. With the conversion held fixed
        the iteration is monotone (more tax -> more withdrawals -> more tax),
        so it converges in a few steps. */
+    /* While working, the paycheck covers the tax there would be without a
+       conversion; a conversion's extra tax is paid from the accounts (or
+       withheld), like any other year. */
+    const noWithdrawals = { fromTaxable: 0, gains: 0, basisOut: 0, fromRoth: 0, fromTrad: 0, fromHSA: 0 };
+    let paycheckCovered = null;
+    const paycheckTax = () => {
+      if (paycheckCovered === null) paycheckCovered = computeYearTax(td, taxParams(0, noWithdrawals)).incomeTax + irmaaFor(noWithdrawals).surcharge.annual;
+      return paycheckCovered;
+    };
+
     const settle = (conv) => {
       let w = { fromTaxable: 0, gains: 0, basisOut: 0, fromRoth: 0, fromTrad: 0, fromHSA: 0 };
       let tax, irmaa = { annual: 0, tier: 0, tierLabel: 'None' }, irmaaMagi = null;
@@ -1257,17 +1376,25 @@ function runProjection(rawInputs, scenario, opts, td) {
         hsaPenalty = age < pen.hsaPenaltyFreeAge ? w.fromHSA * pen.hsaNonMedicalRate : 0;
         const taxesDue = tax.incomeTax + irmaa.annual + tradPenalty + hsaPenalty + rothPenalty + withholdPenalty;
 
-        if (working) break; /* taxes come out of the paycheck */
+        if (working && conv <= 0) break; /* taxes come out of the paycheck */
+
+        /* What the accounts must pay: everything when retired; while working
+           only the extra tax the conversion (and the withdrawals paying for
+           it) causes. */
+        const owed = Math.max(0, taxesDue - (working ? paycheckTax() : 0));
 
         /* Paying tax "from the conversion" = withholding: that slice never
            reaches the Roth and is an early distribution if under 59 1/2. */
         const prevTFC = taxFromConversion;
-        taxFromConversion = payFromConversion && conv > 0 ? Math.min(taxesDue, conv) : 0;
+        taxFromConversion = payFromConversion && conv > 0 ? Math.min(owed, conv) : 0;
         withholdPenalty = earlyPenaltyApplies(age) ? taxFromConversion * pen.earlyDistributionRate : 0;
 
-        const cash = rmd + ssIncome + pension;
-        let need = spendingTarget + taxesDue - taxFromConversion - cash;
-        surplus = Math.max(0, -need);
+        /* Retired: benefits, other income and the RMD pay for spending first.
+           Working: salary covers spending and its own tax; other cash is not
+           modeled. */
+        const cash = working ? 0 : rmd + ssIncome + pension + other.taxFree;
+        let need = spendingTarget + owed - taxFromConversion - cash;
+        surplus = working ? 0 : Math.max(0, -need);
         need = Math.max(0, need);
 
         const prev = w;
@@ -1347,8 +1474,9 @@ function runProjection(rawInputs, scenario, opts, td) {
     };
 
     let conv = 0;
-    if (!working && scenario === 'custom') conv = Math.min(indexAmount(customConversion, startYear, year, infl), tradAvailable);
-    if (!working && scenario === 'optimized') conv = optimizedConversion();
+    const mayConvert = !working || inp.convertWhileWorking;
+    if (mayConvert && scenario === 'custom') conv = Math.min(indexAmount(customConversion, startYear, year, infl), tradAvailable);
+    if (mayConvert && scenario === 'optimized') conv = optimizedConversion();
 
     const settled = settle(conv);
     const { w, tax, irmaa, irmaaMagi, rothPenalty, tradPenalty, hsaPenalty, withholdPenalty, taxFromConversion, unmet, surplus, layers } = settled;
@@ -1398,6 +1526,9 @@ function runProjection(rawInputs, scenario, opts, td) {
       year, age, spouseAge: sAge, spouseAlive, filingStatus, working,
       tradBal, rothBal, taxBal, taxBasis, hsaBal,
       salary, wages, pension, ssIncome, ssOwn: ss.own, ssSurvivor: ss.survivor, ssSource: ss.source, taxableSS: tax.taxableSS, rmd,
+      otherIncome: other.total, otherIncomeTaxable: other.taxable, otherIncomeTaxFree: other.taxFree,
+      otherIncomeLikeSS: other.ssOwn + other.ssSpouse, incomeStreams: other.items,
+      paycheckTax: working && conv > 0 ? paycheckTax() : (working ? totalTax : 0),
       conversionAmount: conv, taxFromConversion,
       taxableWithdrawal: w.fromTaxable, rothWithdrawal: w.fromRoth,
       tradWithdrawal: w.fromTrad, hsaWithdrawal: w.fromHSA,
@@ -1623,6 +1754,7 @@ function summarizePlan(result, inflationRate) {
     unmetA, unmetB,
     passedOver: result.chosen && result.chosen.passedOver ? result.chosen.passedOver : [],
     conversionYears: convRows.length,
+    workingConversionYears: convRows.filter(x => x.r.working).length,
     firstConversion: first ? { year: first.r.year, age: first.r.age, amountToday: deflate(first.r.conversionAmount, first.i), extraTaxToday: extraTaxFirstYear } : null,
     lastConversion: convRows.length ? { year: lastRow(convRows).r.year, age: lastRow(convRows).r.age } : null,
     averageConversionToday: convRows.length ? totalConvertedToday / convRows.length : 0,
@@ -1651,7 +1783,7 @@ return {
   taxableSocialSecurity, stateAllowances, computeYearTax, irmaaSurcharge, irmaaThresholds,
   rmdStartAge, rmdDivisor, requiredMinimumDistribution, fullRetirementAgeMonths, ssClaimingFactor,
   survivorFullRetirementAgeMonths, ssSurvivorFactor, survivorBenefitAmount, socialSecurityPlan, suggestSocialSecurityClaiming,
-  normalizeInputs, validateInputs, runProjection, optimizeStrategy, strategyScore, lifetimeTax, unmetSpendingTotal,
+  normalizeInputs, validateInputs, incomeStreamsAt, runProjection, optimizeStrategy, strategyScore, lifetimeTax, unmetSpendingTotal,
   planMetrics, choosePlan, findBreakevenAge, effectiveRate, summarizePlan
 };
 });

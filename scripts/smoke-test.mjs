@@ -188,6 +188,9 @@ try {
     await page.reload();
     await page.waitForSelector('text=Roth Conversion Ladder Optimizer', { timeout: 30000 });
     check(await page.locator('input[name="goal"][value="spendable"]').isChecked(), 'older saved profile (no goal) loads with "Keep the most for myself"');
+    check((await page.locator('.income-row').count()) === 1, 'older profile\'s pension migrated to one income row');
+    check((await page.locator('.income-row input[type="text"]').first().inputValue()) === 'Pension', 'migrated row is named Pension');
+    check((await page.locator('.income-row-desc').first().innerText()).includes('$24,000 a year of your income from your age 62, for life, rising with inflation, fully taxable'), 'migrated row keeps the old behaviour');
     check((await page.locator('label', { hasText: "Heirs' Tax Rate" }).count()) === 0, "heirs' tax rate hidden under the spendable goal");
     await page.getByRole('button', { name: 'Calculate Optimal Strategy' }).first().click();
     await page.waitForSelector('.plain-headline', { timeout: 30000 });
@@ -197,6 +200,7 @@ try {
     check((await page.locator('.plain-tile .label', { hasText: 'Tax over your lifetime' }).count()) === 1, 'lifetime-tax tile shown');
     check(/minus the tax you \(or your surviving spouse\) would owe to draw it all out/.test(await page.locator('.plain-notes').innerText()), 'notes explain the spendable measure');
     check((await page.locator('.card h3', { hasText: 'What you’d have to spend' }).count()) === 1, 'plain chart shows spendable wealth');
+    check(/Other income counted: Pension: \$24,000 a year of your income from your age 62, rising with inflation \(fully taxable\)/.test(await page.locator('.plain-notes').innerText()), 'notes list the other income');
     await page.locator('.details-toggle button').click();
     check(/most spendable wealth/.test(await page.locator('.details-note').innerText()), 'details note names the goal');
     check((await page.locator('.summary-card .label', { hasText: 'Spendable Wealth Advantage' }).count()) === 1, 'details card shows spendable wealth');
@@ -214,6 +218,42 @@ try {
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'heirs-goal.png'), fullPage: true });
     await page.locator('.results-close').click();
     check(JSON.parse(await page.evaluate(() => localStorage.getItem('roth-optimizer-profile'))).goal === 'heirs', 'goal saved with the profile');
+    check(errors.length === 0, `no page errors (${errors.join('; ')})`);
+    await context.close();
+  }
+
+  /* 4d. Other income rows and working-year conversions */
+  {
+    const { page, errors, context } = await newPage();
+    await page.locator('select').first().selectOption('late-starter-60'); /* still working until 63 */
+    await page.locator('.collapsible-header', { hasText: 'Assumptions & Strategy' }).click();
+    check((await page.locator('label', { hasText: 'Convert while still working?' }).count()) === 1, 'working-year switch shown while still working');
+    await page.locator('.collapsible-header', { hasText: 'Assumptions & Strategy' }).click();
+    await page.locator('.add-income').click();
+    check((await page.locator('.income-row').count()) === 1, 'Add income adds a row');
+    const row = page.locator('.income-row').first();
+    await row.locator('input[type="text"]').fill('Long-term disability');
+    await row.locator('.input-wrapper.has-prefix input').fill('99808');
+    await row.locator('select').first().selectOption('spouse');
+    await row.locator('label', { hasText: 'Starts at age' }).locator('..').locator('input').fill('58');
+    await row.locator('label', { hasText: 'Stops at age' }).locator('..').locator('input').fill('65');
+    await row.locator('label', { hasText: 'Each year it' }).locator('..').locator('select').selectOption('none');
+    await row.locator('label', { hasText: 'How is it taxed?' }).locator('..').locator('select').selectOption('partial');
+    check((await row.locator('label', { hasText: 'Taxable share' }).count()) === 1, 'taxable share appears for a partly taxable stream');
+    check((await row.locator('.income-row-desc').innerText()).includes('$99,808 a year of your spouse’s income from their age 58, until their age 65, flat, 85% taxable'), 'row describes itself in plain English');
+    if (shotDir) await page.locator('.income-streams').screenshot({ path: path.join(shotDir, 'income-streams.png') });
+    await page.getByRole('button', { name: 'Calculate Optimal Strategy' }).first().click();
+    await page.waitForSelector('.plain-headline', { timeout: 30000 });
+    const notes = await page.locator('.plain-notes').innerText();
+    check(/Other income counted: Long-term disability: \$99,808 a year of your spouse’s income from their age 58 until their age 65, flat \(85% taxable\)/.test(notes), 'summary lists the disability income');
+    await page.locator('.details-toggle button').click();
+    await page.locator('.details-view .tab', { hasText: 'Show the math' }).click();
+    await page.locator('.math-controls select').nth(1).selectOption('0'); /* the first year, while the disability income is paid */
+    const math = await page.locator('.math-table').innerText();
+    check(/Long-term disability \(85% of \$[\d,]+ is taxable\)/.test(math), 'show-the-math lists the stream and its taxable part');
+    await page.locator('.results-close').click();
+    await page.locator('.income-row .remove-income').click();
+    check((await page.locator('.income-row').count()) === 0, 'Remove deletes the row');
     check(errors.length === 0, `no page errors (${errors.join('; ')})`);
     await context.close();
   }

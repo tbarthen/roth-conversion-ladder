@@ -1,6 +1,6 @@
 # Roth Conversion Ladder Optimizer
 
-Shows whether moving money from a traditional IRA/401(k) into a Roth IRA would lower your lifetime taxes, and how much to convert each year. One question near the top of the form sets the goal: **keep the most for myself** (the default: the most spendable wealth at the end, after the tax you would owe to withdraw it) or **leave the most to my heirs**; the results say which one the suggested plan was chosen for (see `docs/optimization-goal.md`). The results open with a plain-English summary. **Show details** opens charts, year-by-year tables and a step-by-step "Show the math" view.
+Shows whether moving money from a traditional IRA/401(k) into a Roth IRA would lower your lifetime taxes, and how much to convert each year. One question near the top of the form sets the goal: **keep the most for myself** (the default: the most spendable wealth at the end, after the tax you would owe to withdraw it) or **leave the most to my heirs**; the results say which one the suggested plan was chosen for (see `docs/optimization-goal.md`). Other income (pensions, disability, SSDI, annuities) is entered as dated streams with their own tax treatment, and conversions are considered in working years too (see `docs/income-and-working-years.md`). The results open with a plain-English summary. **Show details** opens charts, year-by-year tables and a step-by-step "Show the math" view.
 
 Live site: https://tbarthen.github.io/roth-conversion-ladder/
 
