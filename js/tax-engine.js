@@ -993,6 +993,10 @@ function normalizeInputs(raw, td) {
     filingStatus,
     spouseAge,
     spouseLifeExpectancy: clamp(Math.round(orDefault(toNum(r.spouseLifeExpectancy), 90)), 19, 120),
+    /* Age Medicare coverage starts (IRMAA applies from then): 65 for most people,
+       earlier for someone on Social Security disability (24 months after SSDI starts). */
+    medicareAge: clamp(Math.round(orDefault(toNum(r.medicareAge), 65)), 18, 65),
+    spouseMedicareAge: clamp(Math.round(orDefault(toNum(r.spouseMedicareAge), 65)), 18, 65),
     stateAbbr: state ? state.abbr : '--',
     stateMode,
     stateTaxRate: stateMode === 'flat' ? clamp(override, 0, 20) : stateMode === 'brackets' ? state.rate : 0,
@@ -1063,6 +1067,8 @@ function validateInputs(raw, td) {
   const age = num('currentAge', 'current age', { required: true, min: 18, max: 100, integer: true });
   const ret = num('retirementAge', 'retirement age', { min: 18, max: 100, integer: true });
   const le = num('lifeExpectancy', 'life expectancy', { min: 19, max: 120, integer: true });
+  num('medicareAge', 'Medicare start age', { min: 18, max: 65, integer: true });
+  num('spouseMedicareAge', 'spouse Medicare start age', { min: 18, max: 65, integer: true });
   num('annualSpending', 'yearly spending in retirement', { required: true, min: 0, max: 1e7 });
   for (const [f, label] of [['traditionalBalance', 'traditional IRA/401(k) balance'], ['rothBalance', 'Roth balance'],
     ['taxableBalance', 'taxable account balance'], ['taxableCostBasis', 'taxable cost basis'], ['hsaBalance', 'HSA balance']]) {
@@ -1309,7 +1315,7 @@ function runProjection(rawInputs, scenario, opts, td) {
       : ((age >= ssExemptAge ? ownSs : 0) + (spouseAlive && sAge >= ssExemptAge ? spouseSs : 0)) / ssIncome;
 
     /* 6. IRMAA for this year (MAGI from two years ago) */
-    const medicarePeople = (age >= 65 ? 1 : 0) + (isMFJ && sAge >= 65 ? 1 : 0);
+    const medicarePeople = (age >= inp.medicareAge ? 1 : 0) + (isMFJ && sAge >= inp.spouseMedicareAge ? 1 : 0);
     const lookback = td.irmaa.lookbackYears;
     const spendingTarget = working ? 0 : indexAmount(inp.annualSpending, startYear, year, infl);
     const tradAvailable = Math.max(0, tradBal - rmd);
@@ -1461,7 +1467,7 @@ function runProjection(rawInputs, scenario, opts, td) {
       const ceiling = bracketCeiling(getBrackets(td, filingStatus, year, bInfl), targetBracketRate);
       let conv = solveMax((x) => settle(x).tax.ordinaryTaxableIncome, ceiling, tradAvailable);
       /* Optionally stay under the next Medicare IRMAA threshold (hit 2 years later) */
-      const futureMedicare = (age + lookback >= 65) || (isMFJ && sAge + lookback >= 65);
+      const futureMedicare = (age + lookback >= inp.medicareAge) || (isMFJ && sAge + lookback >= inp.spouseMedicareAge);
       if (irmaaMode === 'avoid' && conv > 0 && futureMedicare) {
         const magiAt = (x) => settle(x).tax.magi;
         const base = magiAt(0);

@@ -2420,6 +2420,7 @@ const SAMPLE_PROFILES = [
 const INPUT_FIELD_PATHS = [
   'currentAge', 'retirementAge', 'lifeExpectancy', 'filingStatus',
   'stateAbbr', 'stateTaxRateOverride', 'spouseAge', 'spouseLifeExpectancy',
+  'medicareAge', 'spouseMedicareAge',
   'traditionalBalance', 'rothBalance', 'taxableBalance', 'taxableCostBasis',
   'hsaBalance',
   'annualContributions.traditional', 'annualContributions.roth',
@@ -2483,6 +2484,8 @@ const FIELD_LABELS = {
   stateTaxRateOverride: 'State Tax Rate Override',
   spouseAge: 'Spouse Age',
   spouseLifeExpectancy: 'Spouse Life Expectancy',
+  medicareAge: 'Medicare Starts at Age',
+  spouseMedicareAge: 'Spouse Medicare Starts at Age',
   traditionalBalance: 'Traditional IRA/401(k) Balance',
   rothBalance: 'Roth IRA Balance',
   taxableBalance: 'Taxable Balance',
@@ -2527,6 +2530,8 @@ const makeDefaultInputs = () => ({
   stateTaxRateOverride: '',
   spouseAge: '',
   spouseLifeExpectancy: 90,
+  medicareAge: 65,
+  spouseMedicareAge: 65,
   traditionalBalance: '',
   rothBalance: '',
   taxableBalance: '',
@@ -3155,6 +3160,7 @@ function InputForm({ inputs, setInputs, onCalculate, rates, taxDataLine, validat
           field('Current Age', 'currentAge', { min: 20, max: 100 }),
           field('Retirement Age', 'retirementAge', { min: 20, max: 100, placeholder: 'same as current if retired' }),
           field('Life Expectancy', 'lifeExpectancy', { min: 50, max: 120 }),
+          field('Medicare Starts at Age', 'medicareAge', { min: 18, max: 65, placeholder: '65', help: '65 for most people. On Social Security disability (SSDI)? Medicare starts 24 months after SSDI payments begin.' }),
           field('Filing Status', 'filingStatus', {
             type: 'select',
             options: [
@@ -3199,7 +3205,8 @@ function InputForm({ inputs, setInputs, onCalculate, rates, taxDataLine, validat
       React.createElement(Collapsible, { title: 'Spouse Info', summary: spouseSummary, defaultOpen: true },
         React.createElement('div', { className: 'form-grid' },
           field('Spouse Current Age', 'spouseAge', { min: 20, max: 100 }),
-          field('Spouse Life Expectancy', 'spouseLifeExpectancy', { min: 50, max: 120 })
+          field('Spouse Life Expectancy', 'spouseLifeExpectancy', { min: 50, max: 120 }),
+          field('Spouse Medicare Starts at Age', 'spouseMedicareAge', { min: 18, max: 65, placeholder: '65', help: '65 for most people. On Social Security disability (SSDI)? Medicare starts 24 months after SSDI payments begin.' })
         )
       )
     ),
@@ -3862,7 +3869,7 @@ function ProjectionTable({ data, label, showReal, inflationRate }) {
     { name: 'HSA Pen.', tip: 'Penalty on HSA withdrawals before age 65 (20% penalty on non-medical withdrawals)' },
     { name: 'Roth Pen.', tip: 'Early Roth withdrawal penalty \u2014 10% on conversions less than 5 years old, and on earnings, withdrawn before age 59\u00BD' },
     { name: 'Early Pen.', tip: '10% penalty on Traditional withdrawals (including tax withheld from a conversion) before age 59\u00BD' },
-    { name: 'IRMAA', tip: 'Medicare IRMAA surcharge (Parts B + D). Based on MAGI from 2 years prior. Applies at age 65+' },
+    { name: 'IRMAA', tip: 'Medicare IRMAA surcharge (Parts B + D). Based on MAGI from 2 years prior. Applies once on Medicare (65, or earlier on SSDI)' },
     { name: 'Total Tax', tip: 'Sum of all taxes and penalties for this year: Fed Tax + State Tax + CG Tax + NIIT + HSA Pen. + Roth Pen. + Early Pen. + IRMAA' },
     { name: 'Cum. Tax (from ' + startYear + ')', tip: 'Cumulative total of all taxes and penalties paid from ' + startYear + ' through this year' },
     { name: 'Marg. Bracket', tip: 'Marginal federal tax bracket — the rate applied to the last dollar of ordinary taxable income this year' },
@@ -4321,7 +4328,7 @@ function KeyAssumptions({ rates }) {
     'Standard deduction includes the extra amount for each person 65+. The senior deduction ($6,000 per person 65+, phased out at 6% of MAGI above $75K single / $150K joint, not for married filing separately) applies 2025–2028 only.',
     'Social Security: up to 85% taxable using provisional income (IRS Pub 915). If you have not started yet, your benefit at full retirement age is adjusted for your start age (reduced up to 30% at 62, increased 8%/year after full retirement age up to 70). If your start age is below your current age you already collect, so the amount you enter is used as is. Benefits rise with inflation. The earnings test (benefits withheld while working before full retirement age) is not modeled.',
     'Survivor benefits: a widow(er) can take a survivor benefit from 60, at 71.5% of the late spouse’s benefit at 60 rising each month to 100% at the survivor full retirement age (66–67, two birth years behind the retirement one); nothing is added for waiting longer. The late spouse’s benefit includes any delayed credits they earned; if they started early, the survivor benefit is capped at the larger of what they were getting and 82.5% of their full amount (SSA’s RIB-LIM). The survivor and own benefits are separate: each is fixed by its own start age, and each year you receive the larger one (SSA pays your own plus the excess), so “survivor first, own at 70” and the reverse both work. Simplifications: the survivor reduction is applied to the credit-increased amount (SSA may reduce only the full-retirement-age amount and add the credits, a little more); ages are whole years. Not modeled: disabled widow(er)s’ benefits from 50, benefits for a surviving spouse caring for a child, the loss of the survivor benefit on remarriage before 60, and the $255 lump sum.',
-    'Medicare IRMAA: surcharge = Part B premium above the standard premium + Part D adjustment, per person on Medicare (65+), based on MAGI from two years earlier, judged on the thresholds for the filing status of that year’s return (a surviving spouse is judged on the joint return for two years). For the first two projection years (no history yet) this year’s income without the conversion is used. Thresholds grow with bracket inflation, premiums with general inflation.',
+    'Medicare IRMAA: surcharge = Part B premium above the standard premium + Part D adjustment, per person on Medicare (from 65, or from the Medicare start age entered for someone on SSDI), based on MAGI from two years earlier, judged on the thresholds for the filing status of that year’s return (a surviving spouse is judged on the joint return for two years). For the first two projection years (no history yet) this year’s income without the conversion is used. Thresholds grow with bracket inflation, premiums with general inflation.',
     'RMDs: start at 72 (born 1950 or earlier), 73 (1951–1959) or 75 (1960+), from the prior year-end balance using the IRS Uniform Lifetime table, or the Joint Life table when your spouse is more than 10 years younger (assumed sole beneficiary).',
     'Early withdrawals: 10% penalty on traditional withdrawals, and on Roth conversions less than 5 years old, before age 59½ (birthdays assumed mid-year); 20% on non-medical HSA withdrawals before 65. Rule-of-55 and 72(t) exceptions and income tax on early Roth earnings are not modeled. Money already in the Roth at the start is treated as seasoned contributions.',
     'Growth: the growth rate is a total return. In the taxable account the dividend yield is part of that return, taxed each year and reinvested; cost basis uses the average-cost method.',

@@ -608,3 +608,30 @@ test('validateInputs: survivor fields, and a warning about the earnings test whe
   assert.equal(m.survivorBenefit, 0);
   assert.ok(E.validateInputs({ currentAge: 60, annualSpending: 1, filingStatus: 'marriedFilingJointly', spouseAge: 58, survivorStartAge: 59 }).errors.some(e => e.field === 'survivorStartAge'));
 });
+
+test('Medicare start age: IRMAA applies from an earlier Medicare age (SSDI)', () => {
+  /* single, 60, pension 250,000: MAGI far above the first IRMAA threshold.
+     At 60 with the default Medicare age (65) there is no surcharge; with
+     Medicare from 58 (SSDI) the surcharge applies from the first year. */
+  const opts = { currentAge: 60, retirementAge: 60, pensionIncome: 250000, inflationRate: 0, bracketInflation: 0 };
+  const def = run(baseInputs(opts));
+  assert.equal(def[0].medicarePeople, 0);
+  assert.equal(def[0].irmaaSurcharge, 0);
+  const early = run(baseInputs({ ...opts, medicareAge: 58 }));
+  assert.equal(early[0].medicarePeople, 1);
+  assert.ok(early[0].irmaaSurcharge > 0);
+  assert.deepEqual(E.irmaaSurcharge(td, early[0].irmaaMagi, 'single', START, 0, 0, 1).annual, early[0].irmaaSurcharge);
+  /* spouse on SSDI Medicare at 52; the user (54) not yet */
+  const mfj = run(baseInputs({ ...opts, currentAge: 54, retirementAge: 54, filingStatus: 'marriedFilingJointly', spouseAge: 52, spouseLifeExpectancy: 90, spouseMedicareAge: 52, pensionIncome: 500000 }));
+  assert.equal(mfj[0].medicarePeople, 1);
+  assert.ok(mfj[0].irmaaSurcharge > 0);
+  /* the standard deduction's 65+ extra is tax law, not Medicare: unchanged */
+  near(assert, early[0].stdDeduction, def[0].stdDeduction, 0.01);
+});
+
+test('Medicare start age: out-of-range values are clamped, missing ones default to 65', () => {
+  const n = E.normalizeInputs(baseInputs({ medicareAge: 70, spouseMedicareAge: '' }), td);
+  assert.equal(n.medicareAge, 65);
+  assert.equal(n.spouseMedicareAge, 65);
+  assert.equal(E.normalizeInputs(baseInputs({ medicareAge: 52 }), td).medicareAge, 52);
+});
