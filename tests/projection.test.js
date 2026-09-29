@@ -691,3 +691,16 @@ test('HSA contributions stop at the Medicare start age (none are allowed once on
   const def = run({ ...inp, medicareAge: '' });
   near(assert, def[3].hsaBal, 26000, 0.01);
 });
+
+test('IRMAA in the first two years uses the prior-year income entered', () => {
+  /* single, 70, on Medicare, modest income now; two years ago income was high (still working). */
+  const opts = { currentAge: 70, retirementAge: 65, ssStartAge: 70, pensionIncome: 20000, inflationRate: 0, bracketInflation: 0 };
+  const est = run(baseInputs(opts));
+  assert.equal(est[0].irmaaSurcharge, 0);                      /* estimated from this year's low income */
+  const known = run(baseInputs({ ...opts, magiTwoYearsAgo: 300000, magiLastYear: 150000 }));
+  near(assert, known[0].irmaaMagi, 300000, 0.01);               /* year 1 looks back to two years ago */
+  near(assert, known[1].irmaaMagi, 150000, 0.01);               /* year 2 looks back to last year */
+  near(assert, known[0].irmaaSurcharge, E.irmaaSurcharge(td, 300000, 'single', START, 0, 0, 1).annual, 0.01);
+  assert.ok(known[0].irmaaSurcharge > known[1].irmaaSurcharge);
+  near(assert, known[2].irmaaMagi, known[0].taxDetail ? known[0].taxDetail.magi : known[2].irmaaMagi, 0.01); /* then the projection's own history */
+});

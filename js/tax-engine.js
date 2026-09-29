@@ -1042,6 +1042,8 @@ function normalizeInputs(raw, td) {
     /* Yearly tax-exempt (municipal bond) interest earned inside the taxable
        account today: part of its return (no extra cash flow), so the projection
        treats it as a yield on the taxable balance, like the dividends. */
+    /* MAGI for the two tax years before the projection starts: [two years ago, last year]; null = not entered */
+    priorMagi: [r.magiTwoYearsAgo, r.magiLastYear].map(v => { const n = toNum(v); return isNaN(n) || v === '' || v == null ? null : clamp(n, 0, 1e8); }),
     taxExemptInterest: clamp(orDefault(toNum(r.taxExemptInterest), 0), 0, 1e7),
     inflationRate,
     bracketInflation: pct(r.bracketInflation, 2.5, 0, 15),
@@ -1137,6 +1139,8 @@ function validateInputs(raw, td) {
   num('taxableGrowth', 'taxable growth rate', { min: -10, max: 30 });
   num('dividendYield', 'dividend yield', { min: 0, max: 10 });
   num('taxExemptInterest', 'tax-exempt interest', { min: 0, max: 1e7 });
+  num('magiTwoYearsAgo', 'income two years ago', { min: 0, max: 1e8 });
+  num('magiLastYear', 'income last year', { min: 0, max: 1e8 });
   if (Number(r.taxExemptInterest) > 0 && !(Number(r.taxableBalance) > 0)) {
     W('taxExemptInterest', 'Tax-exempt interest is treated as part of your taxable account’s return, and that account is empty, so it is left out. Include the bonds in your taxable account balance.');
   }
@@ -1368,7 +1372,11 @@ function runProjection(rawInputs, scenario, opts, td) {
     const irmaaFor = (w) => {
       if (medicarePeople <= 0) return { magi: null, surcharge: { annual: 0, tier: 0, tierLabel: 'None' } };
       const past = magiHistory.length >= lookback ? magiHistory[magiHistory.length - lookback] : null;
-      const magi = past ? past.magi : computeYearTax(td, taxParams(0, w)).magi;
+      /* Before the projection has history, use the income the user entered for the
+         years before it (IRMAA looks back two years); without it, this year's
+         income without the conversion stands in. */
+      const known = past ? null : inp.priorMagi[magiHistory.length - lookback + 2];
+      const magi = past ? past.magi : (known != null ? known : computeYearTax(td, taxParams(0, w)).magi);
       const status = past ? past.filingStatus : filingStatus;
       return { magi, surcharge: irmaaSurcharge(td, magi, status, year, bInfl, infl, medicarePeople) };
     };
