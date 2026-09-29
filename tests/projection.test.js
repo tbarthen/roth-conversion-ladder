@@ -635,3 +635,14 @@ test('Medicare start age: out-of-range values are clamped, missing ones default 
   assert.equal(n.spouseMedicareAge, 65);
   assert.equal(E.normalizeInputs(baseInputs({ medicareAge: 52 }), td).medicareAge, 52);
 });
+
+test('tax-exempt interest flows into the projection: IRMAA MAGI rises, AGI does not', () => {
+  /* pension low enough that Social Security is not already 85% taxable */
+  const opts = { currentAge: 70, retirementAge: 65, ssStartAge: 70, pensionIncome: 15000, inflationRate: 0, bracketInflation: 0 };
+  const a = run(baseInputs(opts)), b = run(baseInputs({ ...opts, taxExemptInterest: 40000 }));
+  assert.ok(b[0].taxableSS > a[0].taxableSS);           /* more of the SS is taxed */
+  /* first year: IRMAA MAGI is this year's MAGI = AGI + the tax-exempt interest */
+  near(assert, b[0].irmaaMagi - b[0].agi, 40000, 0.01);
+  near(assert, a[0].irmaaMagi, a[0].agi, 0.01);
+  assert.equal(E.normalizeInputs(baseInputs({}), td).taxExemptInterest, 0);
+});

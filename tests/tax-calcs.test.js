@@ -361,3 +361,21 @@ test('Social Security survivor: amount from the late spouse\'s record, incl. the
   near(assert, s(67, { fraAmount: 30000, claimingFactor: 1.24 }), 37200, 0.01);
   near(assert, s(60, { fraAmount: 30000, claimingFactor: 1.24 }), 37200 * 0.715, 0.01);
 });
+
+test('tax-exempt interest: counts for Social Security taxation and IRMAA MAGI, not taxed itself', () => {
+  /* single, pension 20,000, SS 30,000.
+     Without muni interest: provisional 20,000 + 15,000 = 35,000 -> 4,500 + 85% x 1,000 = 5,350 taxable SS.
+     With 10,000 of muni interest: provisional 45,000 -> 4,500 + 85% x 11,000 = 13,850 taxable SS;
+     AGI 33,850; MAGI for IRMAA 43,850. */
+  const t = (tei) => E.computeYearTax(td, { filingStatus: S, year: Y, age: 70, pension: 20000, ssBenefits: 30000, taxExemptInterest: tei });
+  near(assert, t(0).taxableSS, 5350);
+  near(assert, t(10000).taxableSS, 13850);
+  near(assert, t(10000).agi, 33850);
+  near(assert, t(10000).magi, 43850);
+  near(assert, t(0).magi, t(0).agi);
+  /* no Social Security: the interest itself is never taxed */
+  const noSS = (tei) => E.computeYearTax(td, { filingStatus: S, year: Y, age: 60, pension: 80000, taxExemptInterest: tei });
+  near(assert, noSS(50000).federalTax, noSS(0).federalTax);
+  near(assert, noSS(50000).agi, noSS(0).agi);
+  near(assert, noSS(50000).magi, noSS(0).magi + 50000);
+});

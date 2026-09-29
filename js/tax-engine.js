@@ -628,7 +628,10 @@ function computeYearTax(td, p) {
   const ordinaryIncome = (p.wages || 0) + (p.pension || 0) + (p.iraDistributions || 0) + (p.hsaTaxable || 0);
   const preferentialGross = Math.max(0, p.dividends || 0) + Math.max(0, p.capitalGains || 0);
   const incomeBeforeSS = ordinaryIncome + preferentialGross;
-  const taxableSS = taxableSocialSecurity(td, p.ssBenefits || 0, incomeBeforeSS, fs);
+  /* Tax-exempt interest (municipal bonds) is not taxed, but it counts in the
+     Social Security provisional-income test and in the MAGI Medicare uses for IRMAA. */
+  const taxExemptInterest = Math.max(0, p.taxExemptInterest || 0);
+  const taxableSS = taxableSocialSecurity(td, p.ssBenefits || 0, incomeBeforeSS + taxExemptInterest, fs);
   const agi = incomeBeforeSS + taxableSS;
   const stdDeduction = standardDeduction(td, fs, p.age, p.spouseAge, p.year, infl);
   const seniorBonus = seniorBonusDeduction(td, agi, fs, p.age, p.spouseAge, p.year);
@@ -652,7 +655,7 @@ function computeYearTax(td, p) {
     : stateTaxableIncome * ((p.stateRate || 0) / 100);
   const stateTax = Math.max(0, stateTaxBeforeCredit - stateCredit);
   return {
-    ordinaryIncome, preferentialGross, incomeBeforeSS, taxableSS, agi, magi: agi,
+    ordinaryIncome, preferentialGross, incomeBeforeSS, taxableSS, agi, taxExemptInterest, magi: agi + taxExemptInterest,
     stdDeduction, seniorBonus, taxableIncome, preferentialIncome, ordinaryTaxableIncome,
     brackets, cgBrackets, federalTax, cgTax, niit,
     stateIncome, stateExcludedRetirement, stateDeduction, stateTaxableIncome, stateCredit, stateTax,
@@ -1036,6 +1039,9 @@ function normalizeInputs(raw, td) {
     rothGrowth: pct(r.rothGrowth, orDefault(toNum(r.preRetirementGrowth), 6), -10, 30),
     taxableGrowth: pct(r.taxableGrowth, orDefault(toNum(r.preRetirementGrowth), 6), -10, 30),
     dividendYield: pct(r.dividendYield, 0, 0, 10),
+    /* Yearly tax-exempt (municipal bond) interest in today's dollars, earned inside
+       the taxable account (part of its return, so no extra cash flow). */
+    taxExemptInterest: clamp(orDefault(toNum(r.taxExemptInterest), 0), 0, 1e7),
     inflationRate,
     bracketInflation: pct(r.bracketInflation, 2.5, 0, 15),
     heirTaxRate: pct(r.heirTaxRate, 24, 0, 60),
@@ -1124,6 +1130,7 @@ function validateInputs(raw, td) {
   num('rothGrowth', 'Roth growth rate', { min: -10, max: 30 });
   num('taxableGrowth', 'taxable growth rate', { min: -10, max: 30 });
   num('dividendYield', 'dividend yield', { min: 0, max: 10 });
+  num('taxExemptInterest', 'tax-exempt interest', { min: 0, max: 1e7 });
   num('inflationRate', 'inflation rate', { min: 0, max: 15 });
   num('bracketInflation', 'bracket inflation rate', { min: 0, max: 15 });
   num('heirTaxRate', "heirs' tax rate", { min: 0, max: 60 });
@@ -1329,7 +1336,7 @@ function runProjection(rawInputs, scenario, opts, td) {
     const taxParams = (conv, w) => ({
       filingStatus, year, age, spouseAge: spouseForTax,
       wages, pension, iraDistributions: rmd + conv + w.fromTrad, rothConversion: conv, hsaTaxable: w.fromHSA,
-      ssBenefits: ssIncome, dividends, capitalGains: w.gains,
+      ssBenefits: ssIncome, dividends, capitalGains: w.gains, taxExemptInterest: taxBal > 0 ? indexAmount(inp.taxExemptInterest, startYear, year, infl) : 0,
       stateRate: inp.stateTaxRate, stateBrackets, stateTaxesSocialSecurity: inp.stateTaxesSocialSecurity, stateSsExemptShare: ssExemptShare,
       stateDeduction: stateAllow ? stateAllow.deduction : null, stateCredit: stateAllow ? stateAllow.credit : 0,
       stateRetirementExclusion: inp.state ? inp.state.retirementExclusion : null,

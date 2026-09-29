@@ -2189,7 +2189,7 @@ h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bot
 .data-banner button:disabled { opacity: 0.6; cursor: wait; }
 
 /* Form help & validation */
-.field-help { display: block; margin-top: 4px; color: var(--text-muted); font-size: 0.75rem; line-height: 1.35; }
+.field-help { display: block; margin-top: 4px; color: var(--text-muted); font-size: 0.75rem; line-height: 1.35; font-style: italic; }
 .field-error-text { display: block; margin-top: 4px; color: var(--accent-red); font-size: 0.75rem; font-weight: 500; }
 .field-warning-text { display: block; margin-top: 4px; color: #a16207; font-size: 0.75rem; }
 .form-group.field-error input, .form-group.field-error select { border-color: var(--accent-red); background: var(--accent-red-light); }
@@ -2429,7 +2429,7 @@ const INPUT_FIELD_PATHS = [
   'spouseSsBenefit', 'spouseSsStartAge',
   'survivorBenefit', 'survivorBenefitType', 'survivorStartAge', 'lateSpouseStartAge', 'lateSpouseBirthYear',
   'incomeStreams', 'annualSpending',
-  'preRetirementGrowth', 'rothGrowth', 'taxableGrowth', 'dividendYield',
+  'preRetirementGrowth', 'rothGrowth', 'taxableGrowth', 'dividendYield', 'taxExemptInterest',
   'inflationRate', 'bracketInflation', 'goal', 'heirTaxRate', 'targetBracket',
   'customConversion', 'taxPaymentSource', 'convertWhileWorking'
 ];
@@ -2511,6 +2511,7 @@ const FIELD_LABELS = {
   rothGrowth: 'Roth Growth',
   taxableGrowth: 'Taxable Growth',
   dividendYield: 'Dividend Yield',
+  taxExemptInterest: 'Tax-Exempt Interest',
   inflationRate: 'Inflation Rate',
   bracketInflation: 'Bracket Inflation',
   goal: 'What Matters Most to You',
@@ -2554,6 +2555,7 @@ const makeDefaultInputs = () => ({
   rothGrowth: 6,
   taxableGrowth: 6,
   dividendYield: 1.3,
+  taxExemptInterest: 0,
   inflationRate: 2.5,
   bracketInflation: 2.5,
   goal: 'spendable',
@@ -2773,6 +2775,7 @@ function InputForm({ inputs, setInputs, onCalculate, rates, taxDataLine, validat
       rothGrowth: prev.rothGrowth,
       taxableGrowth: prev.taxableGrowth,
       dividendYield: prev.dividendYield,
+      taxExemptInterest: prev.taxExemptInterest,
       /* the sample's taxable balance differs, so an old basis would be meaningless */
       taxableCostBasis: '',
       inflationRate: prev.inflationRate,
@@ -3299,6 +3302,8 @@ function InputForm({ inputs, setInputs, onCalculate, rates, taxDataLine, validat
           showAdvancedGrowth && field('Roth Growth Rate', 'rothGrowth', { suffix: '%', min: 0, max: 20 }),
           showAdvancedGrowth && field('Taxable Growth Rate', 'taxableGrowth', { suffix: '%', min: 0, max: 20 }),
           field('Dividend Yield', 'dividendYield', { suffix: '%', min: 0, max: 10, step: 0.1 }),
+          field('Tax-Exempt Interest (per year)', 'taxExemptInterest', { prefix: true, min: 0, placeholder: '0',
+            help: 'Interest from municipal bonds or muni bond funds, shown in box 8 of Form 1099-INT or box 12 of Form 1099-DIV. It is not taxed federally, but it still counts toward how much of your Social Security is taxed and toward Medicare surcharges (IRMAA). Treated as part of your taxable account’s return; bonds from your own state are assumed (most states tax other states’ bond interest). Leave at $0 if you have none.' }),
           field('Inflation Rate', 'inflationRate', { suffix: '%', min: 0, max: 10 }),
           field('Bracket Inflation Adj.', 'bracketInflation', { suffix: '%', min: 0, max: 10,
             help: 'How fast tax brackets and limits rise each year.' })
@@ -4328,7 +4333,7 @@ function KeyAssumptions({ rates }) {
     'Standard deduction includes the extra amount for each person 65+. The senior deduction ($6,000 per person 65+, phased out at 6% of MAGI above $75K single / $150K joint, not for married filing separately) applies 2025–2028 only.',
     'Social Security: up to 85% taxable using provisional income (IRS Pub 915). If you have not started yet, your benefit at full retirement age is adjusted for your start age (reduced up to 30% at 62, increased 8%/year after full retirement age up to 70). If your start age is below your current age you already collect, so the amount you enter is used as is. Benefits rise with inflation. The earnings test (benefits withheld while working before full retirement age) is not modeled.',
     'Survivor benefits: a widow(er) can take a survivor benefit from 60, at 71.5% of the late spouse’s benefit at 60 rising each month to 100% at the survivor full retirement age (66–67, two birth years behind the retirement one); nothing is added for waiting longer. The late spouse’s benefit includes any delayed credits they earned; if they started early, the survivor benefit is capped at the larger of what they were getting and 82.5% of their full amount (SSA’s RIB-LIM). The survivor and own benefits are separate: each is fixed by its own start age, and each year you receive the larger one (SSA pays your own plus the excess), so “survivor first, own at 70” and the reverse both work. Simplifications: the survivor reduction is applied to the credit-increased amount (SSA may reduce only the full-retirement-age amount and add the credits, a little more); ages are whole years. Not modeled: disabled widow(er)s’ benefits from 50, benefits for a surviving spouse caring for a child, the loss of the survivor benefit on remarriage before 60, and the $255 lump sum.',
-    'Medicare IRMAA: surcharge = Part B premium above the standard premium + Part D adjustment, per person on Medicare (from 65, or from the Medicare start age entered for someone on SSDI), based on MAGI from two years earlier, judged on the thresholds for the filing status of that year’s return (a surviving spouse is judged on the joint return for two years). For the first two projection years (no history yet) this year’s income without the conversion is used. Thresholds grow with bracket inflation, premiums with general inflation.',
+    'Medicare IRMAA: surcharge = Part B premium above the standard premium + Part D adjustment, per person on Medicare (from 65, or from the Medicare start age entered for someone on SSDI), based on MAGI (AGI plus tax-exempt interest) from two years earlier, judged on the thresholds for the filing status of that year’s return (a surviving spouse is judged on the joint return for two years). For the first two projection years (no history yet) this year’s income without the conversion is used. Thresholds grow with bracket inflation, premiums with general inflation.',
     'RMDs: start at 72 (born 1950 or earlier), 73 (1951–1959) or 75 (1960+), from the prior year-end balance using the IRS Uniform Lifetime table, or the Joint Life table when your spouse is more than 10 years younger (assumed sole beneficiary).',
     'Early withdrawals: 10% penalty on traditional withdrawals, and on Roth conversions less than 5 years old, before age 59½ (birthdays assumed mid-year); 20% on non-medical HSA withdrawals before 65. Rule-of-55 and 72(t) exceptions and income tax on early Roth earnings are not modeled. Money already in the Roth at the start is treated as seasoned contributions.',
     'Growth: the growth rate is a total return. In the taxable account the dividend yield is part of that return, taxed each year and reinvested; cost basis uses the average-cost method.',
